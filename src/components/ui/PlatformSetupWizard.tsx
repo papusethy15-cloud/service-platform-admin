@@ -1,6 +1,10 @@
 /**
- * PlatformSetupWizard — blocking modal shown when platform profile is incomplete.
- * Admin must fill app_name, support_email, and upload a logo before accessing the dashboard.
+ * PlatformSetupWizard — shown when platform profile is incomplete.
+ * Fixes:
+ *  - Close/Skip button so admin can dismiss and configure later
+ *  - Logo upload is optional (not a blocker) — Cloudinary can be set up first via Settings
+ *  - Launch button on step 1 (no need to force branding step)
+ *  - Clear error messages when Cloudinary is not configured yet
  */
 import { useState } from 'react'
 import { settingsAPI } from '@/services/api'
@@ -25,14 +29,17 @@ export default function PlatformSetupWizard() {
   const [saving, setSaving]   = useState(false)
   const [err,    setErr]      = useState('')
   const [step,   setStep]     = useState(1)
+  const [dismissed, setDismissed] = useState(false)
+
+  // If admin dismissed the wizard, unmount it
+  if (dismissed) return null
 
   const update = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   const canProceedStep1 = form.app_name.trim().length >= 2 && form.support_email.includes('@')
-  const canSave = canProceedStep1
 
   const save = async () => {
-    if (!canSave) return
+    if (!canProceedStep1) return
     setSaving(true); setErr('')
     try {
       await settingsAPI.updatePlatform(form)
@@ -61,7 +68,23 @@ export default function PlatformSetupWizard() {
         maxHeight: '90vh', display: 'flex', flexDirection: 'column',
       }}>
         {/* Header */}
-        <div style={{ background: 'linear-gradient(135deg,#1B4FD8,#7C3AED)', padding: '28px 32px 24px', color: '#fff' }}>
+        <div style={{ background: 'linear-gradient(135deg,#1B4FD8,#7C3AED)', padding: '28px 32px 24px', color: '#fff', position: 'relative' }}>
+          {/* Close / Skip button */}
+          <button
+            onClick={() => setDismissed(true)}
+            title="Skip for now — you can complete this from Settings"
+            style={{
+              position: 'absolute', top: 16, right: 16,
+              background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+              color: '#fff', borderRadius: 8, padding: '4px 12px',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            ✕ Skip for now
+          </button>
+
           <div style={{ fontSize: 24, marginBottom: 8 }}>🚀</div>
           <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 6 }}>Welcome! Set Up Your Platform</div>
           <div style={{ fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>
@@ -70,7 +93,7 @@ export default function PlatformSetupWizard() {
           {/* Steps */}
           <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
             {[1, 2].map(s => (
-              <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: s < step || step === s ? 'default' : 'default' }}>
+              <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{
                   width: 26, height: 26, borderRadius: '50%',
                   background: step >= s ? '#fff' : 'rgba(255,255,255,0.25)',
@@ -157,9 +180,17 @@ export default function PlatformSetupWizard() {
 
           {step === 2 && (
             <>
+              {/* Cloudinary notice */}
+              <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: '#92400E', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <span style={{ fontSize: 16, flexShrink: 0 }}>💡</span>
+                <span>
+                  Logo upload requires Cloudinary credentials. If upload fails, skip this step and configure Cloudinary later via <b>Settings → Cloudinary</b>, then update the logo from <b>Settings → Platform</b>.
+                </span>
+              </div>
+
               <div style={{ marginBottom: 24 }}>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Platform Logo
+                  Platform Logo <span style={{ fontWeight: 400, color: '#94A3B8', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
                 </label>
                 <CloudinaryImageUploader
                   fieldKey="platform_logo"
@@ -172,7 +203,7 @@ export default function PlatformSetupWizard() {
               </div>
               <div style={{ marginBottom: 24 }}>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Favicon
+                  Favicon <span style={{ fontWeight: 400, color: '#94A3B8', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
                 </label>
                 <CloudinaryImageUploader
                   fieldKey="platform_favicon"
@@ -235,25 +266,44 @@ export default function PlatformSetupWizard() {
               }}>← Back</button>
             )}
             {step === 1 && (
-              <button
-                onClick={() => setStep(2)}
-                disabled={!canProceedStep1}
-                style={{
-                  padding: '9px 24px', borderRadius: 8, border: 'none',
-                  background: canProceedStep1 ? '#1B4FD8' : '#E2E8F0',
-                  color: canProceedStep1 ? '#fff' : '#94A3B8',
-                  fontSize: 13, fontWeight: 700, cursor: canProceedStep1 ? 'pointer' : 'not-allowed',
-                }}>Next: Branding →</button>
+              <>
+                <button
+                  onClick={() => setStep(2)}
+                  disabled={!canProceedStep1}
+                  style={{
+                    padding: '9px 20px', borderRadius: 8, border: '1.5px solid #E2E8F0',
+                    background: '#fff',
+                    color: canProceedStep1 ? '#374151' : '#94A3B8',
+                    fontSize: 13, fontWeight: 600,
+                    cursor: canProceedStep1 ? 'pointer' : 'not-allowed',
+                  }}>Next: Branding →</button>
+                <button
+                  onClick={save}
+                  disabled={saving || !canProceedStep1}
+                  style={{
+                    padding: '9px 24px', borderRadius: 8, border: 'none',
+                    background: canProceedStep1 ? '#1B4FD8' : '#E2E8F0',
+                    color: canProceedStep1 ? '#fff' : '#94A3B8',
+                    fontSize: 13, fontWeight: 700,
+                    cursor: saving || !canProceedStep1 ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    opacity: saving ? 0.7 : 1,
+                  }}>
+                  {saving ? <><Spinner size="sm" /> Saving…</> : '🚀 Launch Dashboard'}
+                </button>
+              </>
             )}
             {step === 2 && (
               <button
                 onClick={save}
-                disabled={saving || !canSave}
+                disabled={saving || !canProceedStep1}
                 style={{
                   padding: '9px 24px', borderRadius: 8, border: 'none',
                   background: '#1B4FD8', color: '#fff',
-                  fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 8, opacity: saving ? 0.7 : 1,
+                  fontSize: 13, fontWeight: 700,
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  opacity: saving ? 0.7 : 1,
                 }}>
                 {saving ? <><Spinner size="sm" /> Saving…</> : '🚀 Launch Dashboard'}
               </button>
