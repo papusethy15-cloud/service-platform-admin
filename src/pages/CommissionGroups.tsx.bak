@@ -1,0 +1,414 @@
+import { useEffect, useState } from 'react'
+import { commissionsAPI, servicesAPI, techniciansAPI, domainsAPI } from '@/services/api'
+import PageHeader from '@/components/layout/PageHeader'
+import Modal from '@/components/ui/Modal'
+import Spinner from '@/components/ui/Spinner'
+import StatusBadge from '@/components/ui/StatusBadge'
+
+interface Service  { id: string; name: string; category_name?: string }
+interface Domain   { id: string; name: string }
+interface GroupRule { id?: string; service_id: string; domain_id: string|null; commission_type: string; rate: number }
+interface Group {
+  id: string; name: string; description?: string; is_active: boolean
+  technician_count: number; rules: GroupRule[]
+}
+interface Technician { id: string; name: string; mobile: string; technician_code?: string }
+
+const brand = '#1B4FD8'
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>{children}</label>
+}
+
+export default function CommissionGroups() {
+  const [groups, setGroups]       = useState<Group[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [services, setServices]   = useState<Service[]>([])
+  const [allTechs, setAllTechs]   = useState<Technician[]>([])
+  const [domains, setDomains]     = useState<Domain[]>([])
+
+  // Group modal
+  const [showModal, setShowModal] = useState(false)
+  const [editing, setEditing]     = useState<Group | null>(null)
+  const [form, setForm]           = useState({ name: '', description: '' })
+  const [rules, setRules]         = useState<GroupRule[]>([])
+  const [saving, setSaving]       = useState(false)
+  const [err, setErr]             = useState('')
+
+  // Detail drawer
+  const [detail, setDetail]         = useState<any | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [assignSearch, setAssignSearch]   = useState('')
+  const [assigning, setAssigning]         = useState(false)
+
+  // Load
+  const fetchGroups = async () => {
+    setLoading(true)
+    try { const r = await commissionsAPI.listGroups(); setGroups(r.data.data || []) }
+    catch { setGroups([]) } finally { setLoading(false) }
+  }
+
+  useEffect(() => {
+    fetchGroups()
+    servicesAPI.list({ per_page: 200, visible_only: false })
+      .then(r => setServices(r.data.data?.services || r.data.data?.items || []))
+      .catch(() => {})
+    techniciansAPI.list({ per_page: 200 })
+      .then(r => { const d = r.data.data; setAllTechs(d.technicians || d.items || []) })
+      .catch(() => {})
+    domainsAPI.list({ per_page: 100 })
+      .then(r => { const d = r.data.data; setDomains(Array.isArray(d) ? d : (d?.domains || d?.items || [])) })
+      .catch(() => {})
+  }, [])
+
+  // ── Open create ──────────────────────────────────────────────────────────────
+  const openCreate = () => {
+    setEditing(null)
+    setForm({ name: '', description: '' })
+    setRules([{ service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }])
+    setErr(''); setShowModal(true)
+  }
+
+  // ── Open edit ────────────────────────────────────────────────────────────────
+  const openEdit = (g: Group) => {
+    setEditing(g)
+    setForm({ name: g.name, description: g.description || '' })
+    setRules(g.rules.length ? g.rules.map(r => ({ ...r }))
+      : [{ service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }])
+    setErr(''); setShowModal(true)
+  }
+
+  // ── Save ─────────────────────────────────────────────────────────────────────
+  const save = async () => {
+    if (!form.name.trim()) { setErr('Group name is required'); return }
+    const validRules = rules.filter(r => r.service_id && r.rate > 0)
+    setSaving(true); setErr('')
+    try {
+      const payload = { name: form.name, description: form.description, rules: validRules }
+      if (editing) {
+        await commissionsAPI.updateGroup(editing.id, payload)
+      } else {
+        await commissionsAPI.createGroup(payload)
+      }
+      setShowModal(false); fetchGroups()
+    } catch (e: any) { setErr(e.response?.data?.detail || 'Save failed') }
+    finally { setSaving(false) }
+  }
+
+  // ── Open detail ──────────────────────────────────────────────────────────────
+  const openDetail = async (g: Group) => {
+    setDetailLoading(true); setDetail({ ...g, technicians: [] })
+    try {
+      const r = await commissionsAPI.getGroup(g.id)
+      setDetail(r.data.data)
+    } catch {} finally { setDetailLoading(false) }
+  }
+
+  // ── Assign technician ────────────────────────────────────────────────────────
+  const assignTech = async (techId: string) => {
+    if (!detail) return
+    setAssigning(true)
+    try {
+      await commissionsAPI.assignTechnician(detail.id, techId)
+      const r = await commissionsAPI.getGroup(detail.id)
+      setDetail(r.data.data); fetchGroups()
+    } catch (e: any) { alert(e.response?.data?.detail || 'Error') }
+    finally { setAssigning(false) }
+  }
+
+  const removeTech = async (techId: string) => {
+    if (!detail) return
+    setAssigning(true)
+    try {
+      await commissionsAPI.removeAssignment(detail.id, techId)
+      const r = await commissionsAPI.getGroup(detail.id)
+      setDetail(r.data.data); fetchGroups()
+    } catch {} finally { setAssigning(false) }
+  }
+
+  const deleteGroup = async (g: Group) => {
+    if (!confirm(`Deactivate group "${g.name}"?`)) return
+    try { await commissionsAPI.deleteGroup(g.id); fetchGroups() } catch {}
+  }
+
+  // ── Rule helpers ─────────────────────────────────────────────────────────────
+  const addRule    = () => setRules(r => [...r, { service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }])
+  const removeRule = (i: number) => setRules(r => r.filter((_, idx) => idx !== i))
+  const updateRule = (i: number, k: keyof GroupRule, v: any) => setRules(r => r.map((row, idx) => idx === i ? { ...row, [k]: v } : row))
+
+  // Techs not yet in this group
+  const assignedIds = detail?.technicians?.map((t: any) => t.id) || []
+  const unassigned = allTechs.filter(t =>
+    !assignedIds.includes(t.id) &&
+    (assignSearch === '' || t.name.toLowerCase().includes(assignSearch.toLowerCase()) || t.mobile.includes(assignSearch))
+  )
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+  return (
+    <div style={{ padding: '24px 28px' }}>
+      <PageHeader
+        title="Commission Groups"
+        subtitle="Define per-service commission rules and assign technicians"
+        actions={<button className="btn btn-primary" onClick={openCreate}>+ New Group</button>}
+      />
+      <div style={{ height: 20 }} />
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 60 }}><Spinner /></div>
+      ) : groups.length === 0 ? (
+        <div className="card" style={{ padding: 60, textAlign: 'center', color: '#94A3B8' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>💰</div>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>No commission groups yet</div>
+          <div style={{ fontSize: 13, marginBottom: 20 }}>
+            Create groups to define how much commission each technician earns per service.
+          </div>
+          <button className="btn btn-primary" onClick={openCreate}>+ Create First Group</button>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
+          {groups.map(g => (
+            <div key={g.id} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              {/* Header */}
+              <div style={{ padding: '16px 18px', borderBottom: '1px solid #F1F5F9',
+                background: 'linear-gradient(135deg,#EFF6FF,#F8FAFC)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 16, color: '#0F172A' }}>💼 {g.name}</div>
+                  {g.description && <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{g.description}</div>}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <span style={{ fontSize: 11, background: '#DCFCE7', color: '#166534', padding: '2px 8px',
+                    borderRadius: 20, fontWeight: 600 }}>
+                    👥 {g.technician_count} tech{g.technician_count !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              </div>
+
+              {/* Rules summary */}
+              <div style={{ padding: '12px 18px' }}>
+                {g.rules.length === 0 ? (
+                  <div style={{ fontSize: 12, color: '#94A3B8' }}>No rules defined</div>
+                ) : g.rules.slice(0, 4).map((r, i) => {
+                  const svc = services.find(s => s.id === r.service_id)
+                  return (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      fontSize: 13, padding: '5px 0', borderBottom: '1px solid #F8FAFC' }}>
+                      <span style={{ color: '#374151', flex: 1 }}>🔧 {svc?.name || '—'}</span>
+                      {r.domain_id && <span style={{ fontSize: 11, color: '#7C3AED', background: '#F5F3FF',
+                        padding: '1px 6px', borderRadius: 10, marginRight: 6 }}>Domain</span>}
+                      <span style={{ fontWeight: 700, color: '#059669', flexShrink: 0 }}>
+                        {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate}`}
+                      </span>
+                    </div>
+                  )
+                })}
+                {g.rules.length > 4 && (
+                  <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>
+                    +{g.rules.length - 4} more rules
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div style={{ padding: '10px 18px', borderTop: '1px solid #F1F5F9',
+                display: 'flex', gap: 8, background: '#FAFAFA' }}>
+                <button className="btn btn-primary btn-sm" onClick={() => openDetail(g)}>
+                  👥 Manage Technicians
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => openEdit(g)}>✏️ Edit</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => deleteGroup(g)}
+                  style={{ marginLeft: 'auto', color: '#EF4444', border: '1px solid #FECACA' }}>🗑️</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════
+          CREATE / EDIT GROUP MODAL
+      ═══════════════════════════════════════ */}
+      {showModal && (
+        <Modal title={editing ? `Edit — ${editing.name}` : 'Create Commission Group'}
+          onClose={() => setShowModal(false)} size="xl">
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+            <div style={{ gridColumn: '1/-1' }}>
+              <Label>Group Name *</Label>
+              <input className="input" placeholder="e.g. Standard Technicians, Senior Tier"
+                value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div style={{ gridColumn: '1/-1' }}>
+              <Label>Description</Label>
+              <input className="input" placeholder="Optional description"
+                value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+            </div>
+          </div>
+
+          {/* Rules */}
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', textTransform: 'uppercase',
+            letterSpacing: '0.06em', marginBottom: 10, paddingBottom: 6, borderBottom: '2px solid #EFF6FF' }}>
+            Commission Rules per Service
+          </div>
+          <div style={{ fontSize: 12, color: '#64748B', marginBottom: 14 }}>
+            💡 Price used for commission: Domain city price → City price → Service base price (in priority order)
+          </div>
+
+          {rules.map((r, i) => (
+            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginBottom: 10,
+              background: '#F8FAFC', borderRadius: 8, padding: '12px 14px', border: '1px solid #E2E8F0' }}>
+              <div style={{ flex: 2 }}>
+                <Label>Service</Label>
+                <select className="input" value={r.service_id}
+                  onChange={e => updateRule(i, 'service_id', e.target.value)}>
+                  <option value="">Select service…</option>
+                  {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1.5 }}>
+                <Label>Domain (optional)</Label>
+                <select className="input" value={r.domain_id || ''}
+                  onChange={e => updateRule(i, 'domain_id', e.target.value || null)}>
+                  <option value="">All domains</option>
+                  {domains.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div style={{ width: 140 }}>
+                <Label>Type</Label>
+                <select className="input" value={r.commission_type}
+                  onChange={e => updateRule(i, 'commission_type', e.target.value)}>
+                  <option value="PERCENTAGE">% Percentage</option>
+                  <option value="FLAT">₹ Flat Amount</option>
+                </select>
+              </div>
+              <div style={{ width: 100 }}>
+                <Label>{r.commission_type === 'PERCENTAGE' ? 'Rate (%)' : 'Amount (₹)'}</Label>
+                <input className="input" type="number" min={0} step={r.commission_type === 'PERCENTAGE' ? 0.5 : 1}
+                  value={r.rate} onChange={e => updateRule(i, 'rate', parseFloat(e.target.value) || 0)} />
+              </div>
+              <button onClick={() => removeRule(i)} disabled={rules.length === 1}
+                style={{ background: 'none', border: '1px solid #FECACA', color: '#EF4444', borderRadius: 6,
+                  padding: '7px 10px', cursor: 'pointer', flexShrink: 0, marginBottom: 0 }}>✕</button>
+            </div>
+          ))}
+          <button className="btn btn-secondary btn-sm" onClick={addRule} style={{ marginBottom: 20 }}>
+            + Add Service Rule
+          </button>
+
+          {err && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 14px',
+            borderRadius: 8, fontSize: 13, marginBottom: 16 }}>⚠️ {err}</div>}
+
+          <div style={{ display: 'flex', gap: 10, paddingTop: 16, borderTop: '1px solid #E2E8F0' }}>
+            <button className="btn btn-primary" onClick={save} disabled={saving}>
+              {saving ? <Spinner size="sm" /> : editing ? '💾 Save Changes' : '✅ Create Group'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ═══════════════════════════════════════
+          DETAIL / ASSIGN TECHNICIANS DRAWER
+      ═══════════════════════════════════════ */}
+      {detail && (
+        <Modal title={`${detail.name} — Technicians`} onClose={() => setDetail(null)} size="xl">
+          {detailLoading ? (
+            <div style={{ textAlign: 'center', padding: 40 }}><Spinner /></div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+              {/* Assigned technicians */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', marginBottom: 10,
+                  textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Assigned ({detail.technicians?.length || 0})
+                </div>
+                {(detail.technicians || []).length === 0 ? (
+                  <div style={{ color: '#94A3B8', fontSize: 13, padding: 16, textAlign: 'center',
+                    background: '#F8FAFC', borderRadius: 8, border: '2px dashed #E2E8F0' }}>
+                    No technicians assigned yet
+                  </div>
+                ) : (detail.technicians || []).map((t: any) => (
+                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                    background: '#F8FAFC', borderRadius: 8, marginBottom: 8, border: '1px solid #E2E8F0' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#EFF6FF',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 700, color: brand, fontSize: 14, flexShrink: 0 }}>
+                      {t.name.charAt(0)}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#0F172A' }}>{t.name}</div>
+                      <div style={{ fontSize: 11, color: '#64748B' }}>{t.mobile} · {t.technician_code || '—'}</div>
+                    </div>
+                    <button onClick={() => removeTech(t.id)} disabled={assigning}
+                      style={{ background: 'none', border: '1px solid #FECACA', color: '#EF4444',
+                        borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 12 }}>
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add technicians */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', marginBottom: 10,
+                  textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Add Technician
+                </div>
+                <input className="input" placeholder="Search by name or mobile…"
+                  value={assignSearch} onChange={e => setAssignSearch(e.target.value)}
+                  style={{ marginBottom: 10 }} />
+                <div style={{ maxHeight: 340, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {unassigned.slice(0, 20).map(t => (
+                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                      background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#EFF6FF',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 700, color: brand, fontSize: 13 }}>
+                        {t.name.charAt(0)}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{t.name}</div>
+                        <div style={{ fontSize: 11, color: '#64748B' }}>{t.mobile}</div>
+                      </div>
+                      <button className="btn btn-primary btn-sm" onClick={() => assignTech(t.id)} disabled={assigning}>
+                        {assigning ? '…' : '+ Assign'}
+                      </button>
+                    </div>
+                  ))}
+                  {unassigned.length === 0 && (
+                    <div style={{ color: '#94A3B8', fontSize: 12, textAlign: 'center', padding: 20 }}>
+                      {assignSearch ? 'No matching technicians' : 'All technicians already assigned'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Rules summary */}
+          <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #E2E8F0' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>
+              Commission Rules
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {(detail.rules || []).map((r: any, i: number) => {
+                const svc = services.find(s => s.id === r.service_id)
+                return (
+                  <div key={i} style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8,
+                    padding: '6px 12px', fontSize: 13 }}>
+                    <span style={{ color: '#374151' }}>🔧 {svc?.name || '—'}</span>
+                    {r.domain_id && <span style={{ color: '#7C3AED', marginLeft: 6, fontSize: 11 }}>Domain-specific</span>}
+                    <span style={{ fontWeight: 700, color: '#059669', marginLeft: 8 }}>
+                      {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate}`}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#64748B', marginLeft: 6 }}>
+                      of {r.commission_type === 'PERCENTAGE' ? 'service price' : 'flat'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,1790 @@
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { api } from '@/services/api'
+import PageHeader from '@/components/layout/PageHeader'
+import Modal from '@/components/ui/Modal'
+import Spinner from '@/components/ui/Spinner'
+import CloudinaryImageUploader from '@/components/ui/CloudinaryImageUploader'
+
+/* ────────────────────────────────────────────── types ── */
+interface Domain {
+  id: string; name: string; slug: string; description?: string
+  logo_url?: string; primary_color: string; meta_title?: string
+  meta_desc?: string; sort_order: number; is_active: boolean
+  service_count: number; category_count: number; city_count: number; created_at: string
+}
+interface LinkedService {
+  domain_service_id: string; service_id: string; name: string
+  description?: string; category_id: string; category_name: string
+  base_price: number; gst_percent: number; duration_mins: number
+  is_featured: boolean; is_visible: boolean
+}
+interface FaqItem { q: string; a: string }
+interface DomainServiceOverride {
+  domain_service_id: string
+  image_url?: string
+  thumbnail_url?: string
+  meta_title?: string
+  meta_description?: string
+  meta_keywords?: string
+  og_title?: string
+  og_description?: string
+  og_image_url?: string
+  // stored as JSON strings sent to backend
+  includes_json?: string
+  excludes_json?: string
+  faqs_json?: string
+  // parsed arrays used in UI state
+  includes?: string[]
+  excludes?: string[]
+  faqs?: FaqItem[]
+}
+interface LinkedCategory {
+  domain_category_id: string; category_id: string; name: string
+  description?: string; icon?: string; sort_order: number
+}
+interface LinkedCity {
+  domain_city_id: string; city_id: string; name: string
+  state?: string; is_serviceable?: boolean; sort_order: number
+}
+interface SeoData {
+  meta_title?: string; meta_description?: string; meta_keywords?: string
+  og_title?: string; og_description?: string; og_image_url?: string
+  canonical_url?: string; robots?: string; schema_json?: string
+}
+interface DomainProfile {
+  // media
+  logo_url?: string; logo_dark_url?: string; favicon_url?: string
+  og_image_url?: string; banner_url?: string
+  // social
+  facebook_url?: string; instagram_url?: string; twitter_url?: string
+  youtube_url?: string; linkedin_url?: string; whatsapp_number?: string
+  // contact
+  support_phone?: string; support_email?: string
+  office_address?: string; office_city?: string; office_state?: string
+  office_pincode?: string; office_country?: string; google_maps_url?: string
+  // invoice
+  business_legal_name?: string; gstin?: string; pan_number?: string
+  invoice_prefix?: string; bank_account_name?: string; bank_account_number?: string
+  bank_ifsc?: string; bank_name?: string; bank_branch?: string; upi_id?: string
+  // about
+  tagline?: string; about_short?: string; copyright_text?: string
+}
+
+interface ServiceItem {
+  id: string; name: string; base_price: number; duration_mins: number
+  category_id: string; category_name?: string; is_visible: boolean
+}
+
+/* ────────────────────────────────────────── helpers ── */
+const COLOR_PRESETS = [
+  '#1B4FD8','#0F6E56','#7C3AED','#DC2626','#D97706',
+  '#059669','#0891B2','#DB2777','#374151','#0F172A',
+]
+
+function ColorDot({ color, selected, onClick }: { color: string; selected: boolean; onClick: () => void }) {
+  return (
+    <div onClick={onClick} style={{
+      width: 28, height: 28, borderRadius: '50%', background: color, cursor: 'pointer',
+      border: selected ? '3px solid #0F172A' : '2px solid transparent',
+      boxShadow: selected ? '0 0 0 2px white inset' : 'none', transition: 'all 0.15s',
+    }} />
+  )
+}
+
+function StatPill({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ background: `${color}15`, border: `1px solid ${color}30`, borderRadius: 8,
+      padding: '6px 14px', display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+      <span style={{ fontSize: 18, fontWeight: 700, color }}>{value}</span>
+      <span style={{ fontSize: 12, color: '#64748B', fontWeight: 500 }}>{label}</span>
+    </div>
+  )
+}
+
+/* ──────────────── Advanced Service Linker Modal ──────────────────── */
+function LinkServiceModal({
+  domainId,
+  alreadyLinked,
+  onClose,
+  onDone,
+}: {
+  domainId: string
+  alreadyLinked: string[]   // service_ids already on this domain
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [allServices, setAllServices]     = useState<ServiceItem[]>([])
+  const [categories,  setCategories]      = useState<any[]>([])
+  const [loading,     setLoading]         = useState(true)
+  const [search,      setSearch]          = useState('')
+  const [catFilter,   setCatFilter]       = useState('')
+  const [selected,    setSelected]        = useState<Set<string>>(new Set())
+  const [featuredIds, setFeaturedIds]     = useState<Set<string>>(new Set())
+  const [saving,      setSaving]          = useState(false)
+  const [err,         setErr]             = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  /* load all services + categories on mount */
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true)
+      try {
+        const [sRes, cRes] = await Promise.all([
+          api.get('/services', { params: { visible_only: false, per_page: 500 } }),
+          api.get('/services/categories'),
+        ])
+        // API returns data.items OR data (array) depending on version
+        const raw = sRes.data.data
+        setAllServices(Array.isArray(raw) ? raw : (raw?.items || []))
+        setCategories(cRes.data.data || [])
+      } catch {
+        setAllServices([])
+      } finally {
+        setLoading(false)
+        setTimeout(() => searchRef.current?.focus(), 80)
+      }
+    }
+    load()
+  }, [])
+
+  /* filtered view */
+  const filtered = allServices.filter(s => {
+    const matchSearch = !search || s.name.toLowerCase().includes(search.toLowerCase())
+    const matchCat    = !catFilter || s.category_id === catFilter
+    return matchSearch && matchCat
+  })
+
+  const linkedSet   = new Set(alreadyLinked)
+  const available   = filtered.filter(s => !linkedSet.has(s.id))
+  const alreadyInDomain = filtered.filter(s =>  linkedSet.has(s.id))
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleFeatured = (id: string) => {
+    setFeaturedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const selectAll = () => {
+    setSelected(new Set(available.map(s => s.id)))
+  }
+
+  const clearAll = () => setSelected(new Set())
+
+  const doLink = async () => {
+    if (selected.size === 0) return
+    setSaving(true); setErr('')
+    try {
+      const ids = Array.from(selected)
+      // Use bulk endpoint
+      await api.post(`/domains/${domainId}/services/bulk`, { service_ids: ids })
+      // Apply featured flags individually for those marked
+      const featuredToSet = ids.filter(id => featuredIds.has(id))
+      // After bulk link we patch featured ones - get the linked list first
+      // (simpler: just re-link featured ones with is_featured=true)
+      for (const id of featuredToSet) {
+        await api.post(`/domains/${domainId}/services`, { service_id: id, is_featured: true })
+      }
+      onDone()
+      onClose()
+    } catch (e: any) {
+      setErr(e.response?.data?.detail || 'Failed to link services')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const catName = (catId: string) =>
+    categories.find(c => c.id === catId)?.name || catId
+
+  return (
+    <Modal title="Link Services to Domain" onClose={onClose} wide>
+      {/* ── Search + Filter Bar ── */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+        <div style={{ flex: 1, position: 'relative' }}>
+          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+            fontSize: 15, color: '#94A3B8', pointerEvents: 'none' }}>🔍</span>
+          <input
+            ref={searchRef}
+            className="input"
+            style={{ paddingLeft: 34 }}
+            placeholder="Search services by name…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <select
+          className="input"
+          style={{ width: 180 }}
+          value={catFilter}
+          onChange={e => setCatFilter(e.target.value)}
+        >
+          <option value="">All categories</option>
+          {categories.map((c: any) => (
+            <option key={c.id} value={c.id}>{c.icon || ''} {c.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* ── Selection Controls ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        marginBottom: 10, padding: '6px 0' }}>
+        <div style={{ fontSize: 13, color: '#64748B' }}>
+          {loading ? 'Loading…' : (
+            <>
+              <b style={{ color: '#0F172A' }}>{available.length}</b> available ·{' '}
+              <b style={{ color: '#1B4FD8' }}>{selected.size}</b> selected ·{' '}
+              <b style={{ color: '#059669' }}>{alreadyLinked.length}</b> already linked
+            </>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary btn-sm" onClick={selectAll}
+            disabled={available.length === 0}>Select all ({available.length})</button>
+          <button className="btn btn-secondary btn-sm" onClick={clearAll}
+            disabled={selected.size === 0}>Clear</button>
+        </div>
+      </div>
+
+      {/* ── Service List ── */}
+      <div style={{
+        height: 380, overflowY: 'auto', border: '1px solid #E2E8F0', borderRadius: 10,
+        background: '#FAFBFC',
+      }}>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+            <Spinner />
+          </div>
+        ) : available.length === 0 && alreadyInDomain.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 40, color: '#94A3B8', fontSize: 14 }}>
+            {search || catFilter ? 'No services match your filter.' : 'No services found.'}
+          </div>
+        ) : (
+          <>
+            {/* Available services */}
+            {available.map(s => {
+              const isSelected  = selected.has(s.id)
+              const isFeatured  = featuredIds.has(s.id)
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => toggleSelect(s.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '10px 14px', cursor: 'pointer',
+                    borderBottom: '1px solid #F1F5F9',
+                    background: isSelected ? '#EFF6FF' : 'white',
+                    transition: 'background 0.1s',
+                  }}
+                >
+                  {/* Checkbox */}
+                  <div style={{
+                    width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                    border: `2px solid ${isSelected ? '#1B4FD8' : '#CBD5E1'}`,
+                    background: isSelected ? '#1B4FD8' : 'white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.12s',
+                  }}>
+                    {isSelected && <span style={{ color: 'white', fontSize: 12, fontWeight: 700 }}>✓</span>}
+                  </div>
+
+                  {/* Service info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: '#0F172A',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.name}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, background: '#EFF6FF', color: '#1B4FD8',
+                        padding: '1px 7px', borderRadius: 20 }}>
+                        {catName(s.category_id)}
+                      </span>
+                      <span style={{ fontSize: 11, color: '#64748B' }}>
+                        ₹{s.base_price?.toLocaleString('en-IN')}
+                      </span>
+                      <span style={{ fontSize: 11, color: '#94A3B8' }}>
+                        {s.duration_mins} min
+                      </span>
+                      {!s.is_visible && (
+                        <span style={{ fontSize: 11, background: '#FEF3C7', color: '#92400E',
+                          padding: '1px 7px', borderRadius: 20 }}>Hidden</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Featured toggle (only when selected) */}
+                  {isSelected && (
+                    <div
+                      onClick={e => { e.stopPropagation(); toggleFeatured(s.id) }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
+                        borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                        border: `1px solid ${isFeatured ? '#F59E0B' : '#E2E8F0'}`,
+                        background: isFeatured ? '#FEF3C7' : '#F8FAFC',
+                        color: isFeatured ? '#92400E' : '#64748B',
+                        flexShrink: 0, transition: 'all 0.12s',
+                      }}
+                      title="Mark as featured on this domain"
+                    >
+                      {isFeatured ? '⭐ Featured' : '☆ Feature'}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Already linked section */}
+            {alreadyInDomain.length > 0 && (
+              <>
+                <div style={{ padding: '8px 14px', background: '#F1F5F9',
+                  fontSize: 11, fontWeight: 700, color: '#64748B',
+                  letterSpacing: '0.06em', textTransform: 'uppercase',
+                  borderBottom: '1px solid #E2E8F0', borderTop: '1px solid #E2E8F0' }}>
+                  ✅ Already linked to this domain ({alreadyInDomain.length})
+                </div>
+                {alreadyInDomain.map(s => (
+                  <div key={s.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '10px 14px', background: '#F8FFF8',
+                    borderBottom: '1px solid #F1F5F9', opacity: 0.75,
+                  }}>
+                    <div style={{ width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                      background: '#DCFCE7', border: '2px solid #86EFAC',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ color: '#166534', fontSize: 12 }}>✓</span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: '#374151',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.name}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                        <span style={{ fontSize: 11, background: '#EFF6FF', color: '#1B4FD8',
+                          padding: '1px 7px', borderRadius: 20 }}>
+                          {catName(s.category_id)}
+                        </span>
+                        <span style={{ fontSize: 11, color: '#64748B' }}>
+                          ₹{s.base_price?.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 11, color: '#059669', fontWeight: 600, flexShrink: 0 }}>
+                      Linked
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── Footer ── */}
+      {err && (
+        <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px',
+          borderRadius: 8, fontSize: 13, marginTop: 12 }}>{err}</div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
+        <div style={{ fontSize: 13, color: '#64748B' }}>
+          {selected.size > 0 && (
+            <>Linking <b style={{ color: '#1B4FD8' }}>{selected.size}</b> service{selected.size !== 1 ? 's' : ''}{' '}
+            {featuredIds.size > 0 && <>(⭐ {featuredIds.size} featured)</>}</>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-primary" onClick={doLink}
+            disabled={saving || selected.size === 0}>
+            {saving ? <Spinner size="sm" /> : `Link ${selected.size || ''} Service${selected.size !== 1 ? 's' : ''}`}
+          </button>
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/* ──────────────────────────────────── main component ── */
+export default function Domains() {
+  const [domains, setDomains]     = useState<Domain[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [selected, setSelected]   = useState<Domain | null>(null)
+  const [activeTab, setActiveTab] = useState<'services'|'categories'|'cities'|'seo'|'profile'>('services')
+
+  const [services,   setServices]   = useState<LinkedService[]>([])
+  const [categories, setCategories] = useState<LinkedCategory[]>([])
+  const [cities,     setCities]     = useState<LinkedCity[]>([])
+  const [seo,        setSeo]        = useState<SeoData>({})
+  const [profile,    setProfile]    = useState<DomainProfile>({})
+  const [profileForm,setProfileForm]= useState<DomainProfile>({})
+  const [showProfileEdit, setShowProfileEdit] = useState(false)
+  const [detailLoad, setDetailLoad] = useState(false)
+
+  const [showCreate,     setShowCreate]     = useState(false)
+  const [showEdit,       setShowEdit]       = useState<Domain | null>(null)
+  const [showAddService, setShowAddService] = useState(false)
+  const [showAddCat,     setShowAddCat]     = useState(false)
+  const [showAddCity,    setShowAddCity]    = useState(false)
+  const [showSeoEdit,    setShowSeoEdit]    = useState(false)
+
+  const [allCategories, setAllCategories] = useState<any[]>([])
+  const [allCities,     setAllCities]     = useState<any[]>([])
+  const [overrideService, setOverrideService] = useState<LinkedService | null>(null)
+  const [overrideData, setOverrideData]       = useState<DomainServiceOverride>({} as DomainServiceOverride)
+  const [overrideSaving, setOverrideSaving]   = useState(false)
+
+  const [form, setForm] = useState({
+    name: '', slug: '', description: '', logo_url: '',
+    primary_color: '#1B4FD8', sort_order: 0,
+  })
+  const [seoForm, setSeoForm]           = useState<SeoData>({})
+  const [linkCategoryId, setLinkCategoryId] = useState('')
+  const [linkCityId, setLinkCityId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err,    setErr]    = useState('')
+
+  const openOverride = async (svc: LinkedService) => {
+    setOverrideService(svc)
+    try {
+      const r = await api.get(`/domains/${selected!.id}/services/${svc.domain_service_id}/override`)
+      const d = r.data.data || {}
+      // Parse JSON arrays from backend into UI state
+      setOverrideData({
+        ...d,
+        includes: Array.isArray(d.includes) ? d.includes : [],
+        excludes: Array.isArray(d.excludes) ? d.excludes : [],
+        faqs:     Array.isArray(d.faqs)     ? d.faqs     : [],
+      })
+    } catch { setOverrideData({ includes: [], excludes: [], faqs: [] } as any) }
+  }
+
+  const saveOverride = async () => {
+    if (!selected || !overrideService) return
+    setOverrideSaving(true)
+    try {
+      const payload = {
+        ...overrideData,
+        // Serialize UI arrays → JSON strings for backend
+        includes_json: JSON.stringify(overrideData.includes || []),
+        excludes_json: JSON.stringify(overrideData.excludes || []),
+        faqs_json:     JSON.stringify(overrideData.faqs     || []),
+      }
+      await api.put(
+        `/domains/${selected.id}/services/${overrideService.domain_service_id}/override`,
+        payload
+      )
+      setOverrideService(null)
+    } catch (e: any) { alert(e.response?.data?.detail || 'Error saving override') }
+    finally { setOverrideSaving(false) }
+  }
+
+  const fetchDomains = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await api.get('/domains')
+      setDomains(r.data.data?.items || [])
+    } catch { setDomains([]) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { fetchDomains() }, [fetchDomains])
+
+  const fetchDetail = useCallback(async (d: Domain, tab: typeof activeTab) => {
+    if (!d) return
+    setDetailLoad(true)
+    try {
+      if (tab === 'services') {
+        const r = await api.get(`/domains/${d.id}/services`)
+        setServices(r.data.data || [])
+      } else if (tab === 'categories') {
+        const r = await api.get(`/domains/${d.id}/categories`)
+        setCategories(r.data.data || [])
+      } else if (tab === 'cities') {
+        const r = await api.get(`/domains/${d.id}/cities`)
+        setCities(r.data.data || [])
+      } else if (tab === 'seo') {
+        const r = await api.get(`/domains/${d.id}/seo`)
+        setSeo(r.data.data || {})
+        setSeoForm(r.data.data || {})
+      } else {
+        const r = await api.get(`/domains/${d.id}/profile`)
+        setProfile(r.data.data || {})
+        setProfileForm(r.data.data || {})
+      }
+    } catch { /* silent */ }
+    finally { setDetailLoad(false) }
+  }, [])
+
+  const selectDomain = (d: Domain) => {
+    setSelected(d); setActiveTab('services'); fetchDetail(d, 'services')
+  }
+
+  const switchTab = (tab: typeof activeTab) => {
+    setActiveTab(tab)
+    if (selected) fetchDetail(selected, tab)
+  }
+
+  const openAddCategory = async () => {
+    const r = await api.get('/services/categories')
+    setAllCategories(r.data.data || [])
+    setLinkCategoryId('')
+    setShowAddCat(true)
+  }
+
+  const openAddCity = async () => {
+    const r = await api.get('/cities')
+    setAllCities(r.data.data || [])
+    setLinkCityId('')
+    setShowAddCity(true)
+  }
+
+  const doCreate = async () => {
+    if (!form.name || !form.slug) return
+    setSaving(true); setErr('')
+    try {
+      await api.post('/domains', form)
+      setShowCreate(false); fetchDomains()
+      setForm({ name:'',slug:'',description:'',logo_url:'',primary_color:'#1B4FD8',sort_order:0 })
+    } catch (e: any) { setErr(e.response?.data?.detail || 'Error creating domain') }
+    finally { setSaving(false) }
+  }
+
+  const doUpdate = async () => {
+    if (!showEdit) return
+    setSaving(true); setErr('')
+    try {
+      await api.put(`/domains/${showEdit.id}`, form)
+      setShowEdit(null); fetchDomains()
+      if (selected?.id === showEdit.id) setSelected({ ...showEdit, ...form as any })
+    } catch (e: any) { setErr(e.response?.data?.detail || 'Error') }
+    finally { setSaving(false) }
+  }
+
+  const doDeactivate = async (d: Domain) => {
+    if (!confirm(`Deactivate "${d.name}"?`)) return
+    await api.delete(`/domains/${d.id}`)
+    if (selected?.id === d.id) setSelected(null)
+    fetchDomains()
+  }
+
+  const doUnlinkService = async (dsId: string) => {
+    if (!selected || !confirm('Remove this service from domain?')) return
+    await api.delete(`/domains/${selected.id}/services/${dsId}`)
+    fetchDetail(selected, 'services'); fetchDomains()
+  }
+
+  const doToggleFeatured = async (dsId: string) => {
+    if (!selected) return
+    await api.patch(`/domains/${selected.id}/services/${dsId}`)
+    fetchDetail(selected, 'services')
+  }
+
+  const doLinkCategory = async () => {
+    if (!selected || !linkCategoryId) return
+    setSaving(true)
+    try {
+      await api.post(`/domains/${selected.id}/categories`, { category_id: linkCategoryId, sort_order: 0 })
+      setShowAddCat(false); fetchDetail(selected, 'categories'); fetchDomains()
+    } catch (e: any) { alert(e.response?.data?.detail || 'Error') }
+    finally { setSaving(false) }
+  }
+
+  const doUnlinkCategory = async (dcId: string) => {
+    if (!selected || !confirm('Remove this category?')) return
+    await api.delete(`/domains/${selected.id}/categories/${dcId}`)
+    fetchDetail(selected, 'categories'); fetchDomains()
+  }
+
+  const doLinkCity = async () => {
+    if (!selected || !linkCityId) return
+    setSaving(true)
+    try {
+      await api.post(`/domains/${selected.id}/cities`, { city_id: linkCityId, sort_order: 0 })
+      setShowAddCity(false); fetchDetail(selected, 'cities'); fetchDomains()
+    } catch (e: any) { alert(e.response?.data?.detail || 'Error') }
+    finally { setSaving(false) }
+  }
+
+  const doUnlinkCity = async (dcId: string) => {
+    if (!selected || !confirm('Remove this city?')) return
+    await api.delete(`/domains/${selected.id}/cities/${dcId}`)
+    fetchDetail(selected, 'cities'); fetchDomains()
+  }
+
+  const doSaveSeo = async () => {
+    if (!selected) return
+    setSaving(true)
+    try {
+      await api.put(`/domains/${selected.id}/seo`, seoForm)
+      setShowSeoEdit(false); fetchDetail(selected, 'seo')
+    } catch (e: any) { alert(e.response?.data?.detail || 'Error') }
+    finally { setSaving(false) }
+  }
+
+  const doSaveProfile = async () => {
+    if (!selected) return
+    setSaving(true)
+    try {
+      await api.put(`/domains/${selected.id}/profile`, profileForm)
+      setShowProfileEdit(false); fetchDetail(selected, 'profile')
+    } catch (e: any) { alert(e.response?.data?.detail || 'Error saving profile') }
+    finally { setSaving(false) }
+  }
+
+  const openCreate = () => {
+    setForm({ name:'',slug:'',description:'',logo_url:'',primary_color:'#1B4FD8',sort_order:0 })
+    setErr(''); setShowCreate(true)
+  }
+  const openEdit = (d: Domain) => {
+    setForm({ name:d.name,slug:d.slug,description:d.description||'',
+              logo_url:d.logo_url||'',primary_color:d.primary_color,sort_order:d.sort_order })
+    setErr(''); setShowEdit(d)
+  }
+  const slugify = (s: string) => s.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'')
+
+  // IDs already linked (to pass to modal)
+  const linkedServiceIds = services.map(s => s.service_id)
+
+  return (
+    <div style={{ padding:'24px 28px', display:'flex', flexDirection:'column', gap:20 }}>
+      <PageHeader title="Domains" subtitle="Multi-domain service configuration"
+        actions={<button className="btn btn-primary" onClick={openCreate}>+ New Domain</button>} />
+
+      <div style={{ display:'flex', gap:20, alignItems:'flex-start' }}>
+
+        {/* ── LEFT: domain list ── */}
+        <div style={{ width:300, flexShrink:0, display:'flex', flexDirection:'column', gap:10 }}>
+          {loading ? <div style={{ textAlign:'center', padding:32 }}><Spinner /></div>
+          : domains.length === 0
+            ? <div className="card" style={{ padding:24, textAlign:'center', color:'#94A3B8', fontSize:14 }}>
+                No domains yet.<br />
+                <button className="btn btn-primary" style={{ marginTop:12 }} onClick={openCreate}>Create First Domain</button>
+              </div>
+            : domains.map(d => (
+              <div key={d.id} onClick={() => selectDomain(d)}
+                style={{ background:'white', borderRadius:12, padding:16, cursor:'pointer',
+                  border:`2px solid ${selected?.id === d.id ? d.primary_color : '#E2E8F0'}`,
+                  boxShadow: selected?.id === d.id ? `0 4px 16px ${d.primary_color}25` : 'none',
+                  transition:'all 0.15s' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                  <div style={{ width:36, height:36, borderRadius:10, background:d.primary_color,
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    color:'white', fontWeight:700, fontSize:15, flexShrink:0 }}>
+                    {d.logo_url ? <img src={d.logo_url} style={{ width:28,height:28,objectFit:'contain' }} alt="" /> : d.name[0]}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:14, color:'#0F172A',
+                      overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d.name}</div>
+                    <div style={{ fontSize:12, color:'#94A3B8' }}>/{d.slug}</div>
+                  </div>
+                  <span style={{ fontSize:11, padding:'2px 8px', borderRadius:20, fontWeight:600,
+                    background: d.is_active ? '#DCFCE7':'#FEE2E2',
+                    color: d.is_active ? '#166534':'#991B1B' }}>
+                    {d.is_active ? 'Active' : 'Off'}
+                  </span>
+                </div>
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                  <StatPill label="services"   value={d.service_count}  color={d.primary_color} />
+                  <StatPill label="categories" value={d.category_count} color="#64748B" />
+                  <StatPill label="cities"     value={d.city_count}     color="#0EA5E9" />
+                </div>
+              </div>
+            ))}
+        </div>
+
+        {/* ── RIGHT: detail panel ── */}
+        {selected ? (
+          <div className="card" style={{ flex:1, minWidth:0 }}>
+            {/* header */}
+            <div style={{ padding:'20px 24px', borderBottom:'1px solid #E2E8F0',
+              display:'flex', alignItems:'flex-start', justifyContent:'space-between' }}>
+              <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+                <div style={{ width:44, height:44, borderRadius:12, background:selected.primary_color,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  color:'white', fontWeight:700, fontSize:18 }}>
+                  {selected.logo_url ? <img src={selected.logo_url} style={{ width:36,height:36,objectFit:'contain' }} alt="" /> : selected.name[0]}
+                </div>
+                <div>
+                  <h2 style={{ fontSize:18, fontWeight:700, color:'#0F172A', marginBottom:2 }}>{selected.name}</h2>
+                  <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                    <span style={{ fontSize:13, color:'#64748B' }}>/{selected.slug}</span>
+                    <span style={{ width:12, height:12, borderRadius:'50%', display:'inline-block',
+                      background:selected.primary_color }} />
+                    <span style={{ fontSize:12, color:'#94A3B8' }}>{selected.primary_color}</span>
+                  </div>
+                  {selected.description && <p style={{ fontSize:13, color:'#64748B', marginTop:4 }}>{selected.description}</p>}
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => openEdit(selected)}>✏️ Edit</button>
+                <button className="btn btn-danger btn-sm" onClick={() => doDeactivate(selected)}>🗑 Deactivate</button>
+              </div>
+            </div>
+
+            {/* tabs */}
+            <div style={{ display:'flex', borderBottom:'1px solid #E2E8F0', padding:'0 24px' }}>
+              {(['services','categories','cities','seo','profile'] as const).map(tab => (
+                <button key={tab} onClick={() => switchTab(tab)}
+                  style={{ padding:'12px 20px', border:'none', background:'none', cursor:'pointer',
+                    fontSize:14, fontWeight:600, borderBottom:`2px solid ${activeTab===tab ? selected.primary_color : 'transparent'}`,
+                    color: activeTab===tab ? selected.primary_color : '#64748B',
+                    textTransform:'capitalize', transition:'all 0.15s' }}>
+                  {tab === 'services' ? `⚙️ Services (${selected.service_count})`
+                    : tab === 'categories' ? `📁 Categories (${selected.category_count})`
+                    : tab === 'cities' ? `🏙️ Cities (${selected.city_count})`
+                    : tab === 'seo' ? '🔍 SEO'
+                    : '🏢 Profile'}
+                </button>
+              ))}
+            </div>
+
+            {/* tab content */}
+            <div style={{ padding:24, minHeight:300 }}>
+              {detailLoad ? <div style={{ textAlign:'center',padding:40 }}><Spinner /></div>
+
+              : activeTab === 'services' ? (
+                <>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                    <span style={{ fontSize:13, color:'#64748B' }}>
+                      {services.length} service{services.length !== 1 ? 's' : ''} linked to this domain
+                    </span>
+                    <button className="btn btn-primary btn-sm" onClick={() => setShowAddService(true)}>
+                      + Link Services
+                    </button>
+                  </div>
+                  {services.length === 0
+                    ? (
+                      <div style={{ textAlign:'center', padding:'40px 20px', color:'#94A3B8' }}>
+                        <div style={{ fontSize:36, marginBottom:10 }}>⚙️</div>
+                        <div style={{ fontSize:14, fontWeight:600, marginBottom:6 }}>No services linked</div>
+                        <div style={{ fontSize:13, marginBottom:16 }}>Link services so customers can book them on this domain.</div>
+                        <button className="btn btn-primary" onClick={() => setShowAddService(true)}>+ Link Services</button>
+                      </div>
+                    )
+                    : <table className="data-table">
+                        <thead><tr>
+                          <th>Service</th><th>Category</th><th>Price</th>
+                          <th>Duration</th><th>Featured</th><th>Actions</th>
+                        </tr></thead>
+                        <tbody>
+                          {services.map(s => (
+                            <tr key={s.domain_service_id}>
+                              <td>
+                                <div style={{ fontWeight:600, color:'#0F172A' }}>{s.name}</div>
+                                <div style={{ fontSize:11, color:'#94A3B8' }}>{s.description?.slice(0,50)}</div>
+                              </td>
+                              <td>
+                                <span style={{ background:'#EFF6FF',color:'#1B4FD8',
+                                  padding:'2px 8px',borderRadius:20,fontSize:12 }}>{s.category_name}</span>
+                              </td>
+                              <td>₹{s.base_price?.toLocaleString('en-IN')}</td>
+                              <td>{s.duration_mins} min</td>
+                              <td>
+                                <button onClick={() => doToggleFeatured(s.domain_service_id)}
+                                  style={{ background:'none', border:'none', cursor:'pointer', fontSize:20 }}
+                                  title={s.is_featured ? 'Remove featured' : 'Mark featured'}>
+                                  {s.is_featured ? '⭐' : '☆'}
+                                </button>
+                              </td>
+                              <td>
+                                <div style={{ display:'flex', gap:6 }}>
+                                  <button className="btn btn-secondary btn-sm"
+                                    onClick={() => openOverride(s)}
+                                    title="Edit domain-specific image & SEO">🖼️ Override</button>
+                                  <button className="btn btn-danger btn-sm"
+                                    onClick={() => doUnlinkService(s.domain_service_id)}>Remove</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>}
+                </>
+
+              ) : activeTab === 'categories' ? (
+                <>
+                  <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:16 }}>
+                    <button className="btn btn-primary btn-sm" onClick={openAddCategory}>+ Link Category</button>
+                  </div>
+                  {categories.length === 0
+                    ? <p style={{ color:'#94A3B8', fontSize:14, textAlign:'center', padding:20 }}>No categories linked.</p>
+                    : <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:12 }}>
+                        {categories.map(c => (
+                          <div key={c.domain_category_id} style={{ background:'#F8FAFC', borderRadius:10,
+                            padding:14, border:'1px solid #E2E8F0', position:'relative' }}>
+                            <div style={{ fontSize:24, marginBottom:6 }}>{c.icon || '📦'}</div>
+                            <div style={{ fontWeight:600, fontSize:14, color:'#0F172A' }}>{c.name}</div>
+                            {c.description && <div style={{ fontSize:12, color:'#94A3B8', marginTop:4 }}>{c.description}</div>}
+                            <button onClick={() => doUnlinkCategory(c.domain_category_id)}
+                              style={{ position:'absolute', top:8, right:8, background:'none', border:'none',
+                                cursor:'pointer', color:'#DC2626', fontSize:14, padding:2 }}>✕</button>
+                          </div>
+                        ))}
+                      </div>}
+                </>
+
+              ) : activeTab === 'cities' ? (
+                <>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                    <span style={{ fontSize:13, color:'#64748B' }}>
+                      Cities this domain's website serves. Customers only see/select from these.
+                    </span>
+                    <button className="btn btn-primary btn-sm" onClick={openAddCity}>+ Link City</button>
+                  </div>
+                  {cities.length === 0
+                    ? (
+                      <div style={{ textAlign:'center', padding:'40px 20px', color:'#94A3B8' }}>
+                        <div style={{ fontSize:36, marginBottom:10 }}>🏙️</div>
+                        <div style={{ fontSize:14, fontWeight:600, marginBottom:6 }}>No cities linked</div>
+                        <div style={{ fontSize:13, marginBottom:16 }}>Link cities so the website only shows serviceable cities for this domain.</div>
+                        <button className="btn btn-primary" onClick={openAddCity}>+ Link City</button>
+                      </div>
+                    )
+                    : <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:12 }}>
+                        {cities.map(c => (
+                          <div key={c.domain_city_id} style={{ background:'#F8FAFC', borderRadius:10,
+                            padding:14, border:'1px solid #E2E8F0', position:'relative' }}>
+                            <div style={{ fontSize:24, marginBottom:6 }}>🏙️</div>
+                            <div style={{ fontWeight:600, fontSize:14, color:'#0F172A' }}>{c.name}</div>
+                            {c.state && <div style={{ fontSize:12, color:'#94A3B8', marginTop:4 }}>{c.state}</div>}
+                            {c.is_serviceable === false && (
+                              <span style={{ display:'inline-block', marginTop:6, fontSize:11, fontWeight:600,
+                                background:'#FEF3C7', color:'#92400E', padding:'2px 8px', borderRadius:20 }}>Not serviceable</span>
+                            )}
+                            <button onClick={() => doUnlinkCity(c.domain_city_id)}
+                              style={{ position:'absolute', top:8, right:8, background:'none', border:'none',
+                                cursor:'pointer', color:'#DC2626', fontSize:14, padding:2 }}>✕</button>
+                          </div>
+                        ))}
+                      </div>}
+                </>
+
+              ) : activeTab === 'seo' ? (
+                <>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+                    <h3 style={{ fontSize:15, fontWeight:600 }}>SEO & Meta Settings</h3>
+                    <button className="btn btn-primary btn-sm" onClick={() => { setSeoForm(seo); setShowSeoEdit(true) }}>✏️ Edit SEO</button>
+                  </div>
+                  {[
+                    ['Meta Title',       seo.meta_title],
+                    ['Meta Description', seo.meta_description],
+                    ['Meta Keywords',    seo.meta_keywords],
+                    ['OG Title',         seo.og_title],
+                    ['OG Description',   seo.og_description],
+                    ['Canonical URL',    seo.canonical_url],
+                    ['Robots',           seo.robots || 'index,follow'],
+                  ].map(([label, value]) => (
+                    <div key={label as string} style={{ display:'flex', gap:12, padding:'10px 0',
+                      borderBottom:'1px solid #F1F5F9', alignItems:'flex-start' }}>
+                      <div style={{ width:160, flexShrink:0, fontSize:13, fontWeight:600, color:'#64748B' }}>{label}</div>
+                      <div style={{ flex:1, fontSize:13, color: value ? '#0F172A':'#CBD5E1', fontStyle: value ? 'normal':'italic' }}>
+                        {value || 'Not set'}
+                      </div>
+                    </div>
+                  ))}
+                </>
+
+              ) : activeTab === 'profile' ? (
+                <ProfileTab
+                  profile={profile}
+                  brand={selected.primary_color}
+                  onEdit={() => { setProfileForm(profile); setShowProfileEdit(true) }}
+                />
+              ) : null
+              }
+            </div>
+          </div>
+        ) : (
+          <div className="card" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center',
+            flexDirection:'column', gap:12, minHeight:320, color:'#94A3B8' }}>
+            <div style={{ fontSize:40 }}>🌐</div>
+            <div style={{ fontSize:15, fontWeight:600 }}>Select a domain to manage</div>
+            <div style={{ fontSize:13 }}>Configure services, categories and SEO per domain</div>
+          </div>
+        )}
+      </div>
+
+      {/* ── CREATE DOMAIN MODAL ── */}
+      {showCreate && (
+        <Modal title="Create New Domain" onClose={() => setShowCreate(false)}>
+          <DomainForm form={form} setForm={setForm} slugify={slugify} />
+          {err && <div style={{ background:'#FEE2E2',color:'#DC2626',padding:'8px 12px',borderRadius:8,fontSize:13,marginTop:12 }}>{err}</div>}
+          <div style={{ display:'flex', gap:10, marginTop:20 }}>
+            <button className="btn btn-primary" onClick={doCreate} disabled={saving || !form.name || !form.slug}>
+              {saving ? <Spinner size="sm" /> : 'Create Domain'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── EDIT DOMAIN MODAL ── */}
+      {showEdit && (
+        <Modal title={`Edit — ${showEdit.name}`} onClose={() => setShowEdit(null)}>
+          <DomainForm form={form} setForm={setForm} slugify={slugify} />
+          {err && <div style={{ background:'#FEE2E2',color:'#DC2626',padding:'8px 12px',borderRadius:8,fontSize:13,marginTop:12 }}>{err}</div>}
+          <div style={{ display:'flex', gap:10, marginTop:20 }}>
+            <button className="btn btn-primary" onClick={doUpdate} disabled={saving}>{saving ? <Spinner size="sm" /> : 'Save Changes'}</button>
+            <button className="btn btn-secondary" onClick={() => setShowEdit(null)}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── ADVANCED LINK SERVICE MODAL ── */}
+      {showAddService && selected && (
+        <LinkServiceModal
+          domainId={selected.id}
+          alreadyLinked={linkedServiceIds}
+          onClose={() => setShowAddService(false)}
+          onDone={() => { fetchDetail(selected, 'services'); fetchDomains() }}
+        />
+      )}
+
+      {/* ── LINK CATEGORY MODAL ── */}
+      {showAddCat && (
+        <Modal title="Link Category to Domain" onClose={() => setShowAddCat(false)}>
+          <label style={{ fontSize:13, fontWeight:600, display:'block', marginBottom:6 }}>Select Category</label>
+          <select className="input" value={linkCategoryId} onChange={e => setLinkCategoryId(e.target.value)}>
+            <option value="">-- Choose category --</option>
+            {allCategories.map((c:any) => (
+              <option key={c.id} value={c.id}>{c.icon || ''} {c.name}</option>
+            ))}
+          </select>
+          <div style={{ display:'flex', gap:10, marginTop:20 }}>
+            <button className="btn btn-primary" onClick={doLinkCategory} disabled={saving || !linkCategoryId}>
+              {saving ? <Spinner size="sm" /> : 'Link Category'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => setShowAddCat(false)}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── LINK CITY MODAL ── */}
+      {showAddCity && (
+        <Modal title="Link City to Domain" onClose={() => setShowAddCity(false)}>
+          <label style={{ fontSize:13, fontWeight:600, display:'block', marginBottom:6 }}>Select City</label>
+          <select className="input" value={linkCityId} onChange={e => setLinkCityId(e.target.value)}>
+            <option value="">-- Choose city --</option>
+            {allCities.map((c:any) => (
+              <option key={c.id} value={c.id}>{c.name}{c.state ? `, ${c.state}` : ''}</option>
+            ))}
+          </select>
+          <div style={{ display:'flex', gap:10, marginTop:20 }}>
+            <button className="btn btn-primary" onClick={doLinkCity} disabled={saving || !linkCityId}>
+              {saving ? <Spinner size="sm" /> : 'Link City'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => setShowAddCity(false)}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── SEO EDIT MODAL ── */}
+      {showSeoEdit && (
+        <Modal title="Edit SEO Settings" onClose={() => setShowSeoEdit(false)}>
+          {([
+            ['meta_title',       'Meta Title',       'text'],
+            ['meta_description', 'Meta Description', 'textarea'],
+            ['meta_keywords',    'Meta Keywords',    'text'],
+            ['og_title',         'OG Title',         'text'],
+            ['og_description',   'OG Description',   'textarea'],
+            ['canonical_url',    'Canonical URL',    'text'],
+            ['robots',           'Robots',           'text'],
+          ] as [keyof SeoData, string, string][]).map(([key, label, type]) => (
+            <div key={key} style={{ marginBottom:12 }}>
+              <label style={{ fontSize:12, fontWeight:600, color:'#374151', display:'block', marginBottom:4 }}>{label}</label>
+              {type === 'textarea'
+                ? <textarea className="input" rows={2} value={(seoForm as any)[key] || ''}
+                    onChange={e => setSeoForm(p => ({ ...p, [key]: e.target.value }))}
+                    style={{ resize:'vertical' }} />
+                : <input className="input" type="text" value={(seoForm as any)[key] || ''}
+                    onChange={e => setSeoForm(p => ({ ...p, [key]: e.target.value }))} />}
+            </div>
+          ))}
+          <div style={{ marginBottom:12 }}>
+            <label style={{ fontSize:12, fontWeight:600, color:'#374151', display:'block', marginBottom:4 }}>JSON-LD Schema</label>
+            <textarea className="input" rows={4} value={seoForm.schema_json || ''}
+              onChange={e => setSeoForm(p => ({ ...p, schema_json: e.target.value }))}
+              placeholder='{"@context":"https://schema.org","@type":"LocalBusiness",...}'
+              style={{ resize:'vertical', fontFamily:'monospace', fontSize:12 }} />
+          </div>
+          <div style={{ display:'flex', gap:10, marginTop:16 }}>
+            <button className="btn btn-primary" onClick={doSaveSeo} disabled={saving}>{saving ? <Spinner size="sm" /> : 'Save SEO'}</button>
+            <button className="btn btn-secondary" onClick={() => setShowSeoEdit(false)}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── SERVICE OVERRIDE DRAWER ── */}
+      {overrideService && selected && (
+        <ServiceOverrideDrawer
+          domainId={selected.id}
+          brand={selected.primary_color}
+          service={overrideService}
+          data={overrideData}
+          setData={setOverrideData}
+          saving={overrideSaving}
+          onSave={saveOverride}
+          onClose={() => setOverrideService(null)}
+        />
+      )}
+
+      {/* ── PROFILE EDIT MODAL ── */}
+      {showProfileEdit && selected && (
+        <ProfileEditModal
+          form={profileForm}
+          setForm={setProfileForm}
+          brand={selected.primary_color}
+          saving={saving}
+          onSave={doSaveProfile}
+          onClose={() => setShowProfileEdit(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ─── Domain form ─── */
+function DomainForm({ form, setForm, slugify }: {
+  form: any; setForm: (f: any) => void; slugify: (s: string) => string
+}) {
+  return (
+    <>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+        <div>
+          <label style={{ fontSize:12, fontWeight:600, color:'#374151', display:'block', marginBottom:4 }}>Domain Name *</label>
+          <input className="input" value={form.name} placeholder="Palei Solutions"
+            onChange={e => setForm((p: any) => ({ ...p, name: e.target.value, slug: p.slug || slugify(e.target.value) }))} />
+        </div>
+        <div>
+          <label style={{ fontSize:12, fontWeight:600, color:'#374151', display:'block', marginBottom:4 }}>Slug *</label>
+          <input className="input" value={form.slug} placeholder="palei-solutions"
+            onChange={e => setForm((p: any) => ({ ...p, slug: slugify(e.target.value) }))} />
+        </div>
+      </div>
+      <div style={{ marginTop:12 }}>
+        <label style={{ fontSize:12, fontWeight:600, color:'#374151', display:'block', marginBottom:4 }}>Description</label>
+        <textarea className="input" rows={2} value={form.description} placeholder="Short description..."
+          onChange={e => setForm((p: any) => ({ ...p, description: e.target.value }))} style={{ resize:'vertical' }} />
+      </div>
+      <div style={{ marginTop:12 }}>
+        <CloudinaryImageUploader
+          label="Logo"
+          fieldKey="logo_url"
+          aspectRatio={4}
+          recommendedSize="400×100px"
+          hint="Upload via Cloudinary or enter URL directly below"
+          currentUrl={form.logo_url}
+          onChange={url => setForm((p: any) => ({ ...p, logo_url: url }))}
+        />
+        <input className="input" value={form.logo_url} placeholder="https://..."
+          onChange={e => setForm((p: any) => ({ ...p, logo_url: e.target.value }))}
+          style={{ marginTop: 6 }} />
+      </div>
+      <div style={{ marginTop:12 }}>
+        <label style={{ fontSize:12, fontWeight:600, color:'#374151', display:'block', marginBottom:6 }}>Brand Color</label>
+        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          {COLOR_PRESETS.map(c => (
+            <ColorDot key={c} color={c} selected={form.primary_color === c}
+              onClick={() => setForm((p: any) => ({ ...p, primary_color: c }))} />
+          ))}
+          <input type="color" value={form.primary_color}
+            onChange={e => setForm((p: any) => ({ ...p, primary_color: e.target.value }))}
+            style={{ width:28, height:28, border:'none', padding:0, borderRadius:'50%', cursor:'pointer', background:'none' }} />
+          <span style={{ fontSize:12, color:'#64748B', fontFamily:'monospace' }}>{form.primary_color}</span>
+        </div>
+        <div style={{ marginTop:10, padding:'10px 14px', borderRadius:10, background:form.primary_color,
+          color:'white', display:'flex', alignItems:'center', gap:10, fontSize:14, fontWeight:600 }}>
+          <div style={{ width:28, height:28, borderRadius:8, background:'rgba(255,255,255,0.25)',
+            display:'flex', alignItems:'center', justifyContent:'center', fontSize:15 }}>
+            {form.name?.[0] || 'P'}
+          </div>
+          {form.name || 'Domain Preview'}
+          <span style={{ fontSize:12, opacity:0.8 }}>/{form.slug || 'slug'}</span>
+        </div>
+      </div>
+      <div style={{ marginTop:12 }}>
+        <label style={{ fontSize:12, fontWeight:600, color:'#374151', display:'block', marginBottom:4 }}>Sort Order</label>
+        <input className="input" type="number" value={form.sort_order} style={{ width:100 }}
+          onChange={e => setForm((p: any) => ({ ...p, sort_order: parseInt(e.target.value)||0 }))} />
+      </div>
+    </>
+  )
+}
+
+/* ─── Profile read-only tab ─── */
+function ProfileTab({ profile, brand, onEdit }: {
+  profile: DomainProfile; brand: string; onEdit: () => void
+}) {
+  const Section = ({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) => (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
+        paddingBottom: 8, borderBottom: `2px solid ${brand}20` }}>
+        <span style={{ fontSize: 18 }}>{icon}</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#0F172A' }}>{title}</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 24px' }}>
+        {children}
+      </div>
+    </div>
+  )
+
+  const Row = ({ label, value, full }: { label: string; value?: string; full?: boolean }) => (
+    <div style={{ gridColumn: full ? '1 / -1' : undefined, padding: '6px 0',
+      borderBottom: '1px solid #F1F5F9' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8',
+        textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, color: value ? '#0F172A' : '#CBD5E1',
+        fontStyle: value ? 'normal' : 'italic' }}>
+        {value && value.startsWith('http') ? (
+          <a href={value} target="_blank" rel="noreferrer"
+            style={{ color: brand, textDecoration: 'none', fontWeight: 500 }}>
+            {value.length > 50 ? value.slice(0, 50) + '…' : value}
+          </a>
+        ) : (value || 'Not set')}
+      </div>
+    </div>
+  )
+
+  const hasMedia   = profile.logo_url || profile.og_image_url || profile.favicon_url || profile.banner_url
+  const hasSocial  = profile.facebook_url || profile.instagram_url || profile.twitter_url
+                     || profile.youtube_url || profile.linkedin_url || profile.whatsapp_number
+  const hasContact = profile.support_phone || profile.support_email || profile.office_address
+  const hasInvoice = profile.business_legal_name || profile.gstin || profile.bank_account_number
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0F172A', margin: 0 }}>Domain Profile</h3>
+          <p style={{ fontSize: 13, color: '#64748B', margin: '2px 0 0' }}>
+            Branding, contact info, social media, and invoice details shown on the domain website.
+          </p>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={onEdit}>✏️ Edit Profile</button>
+      </div>
+
+      {/* Media preview */}
+      {hasMedia && (
+        <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+          {profile.logo_url && (
+            <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 10,
+              border: '1px solid #E2E8F0', textAlign: 'center' }}>
+              <img src={profile.logo_url} alt="Logo"
+                style={{ height: 48, objectFit: 'contain', display: 'block', marginBottom: 6 }} />
+              <div style={{ fontSize: 11, color: '#94A3B8' }}>Logo</div>
+            </div>
+          )}
+          {profile.og_image_url && (
+            <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 10,
+              border: '1px solid #E2E8F0', textAlign: 'center' }}>
+              <img src={profile.og_image_url} alt="OG"
+                style={{ height: 48, objectFit: 'cover', width: 85, display: 'block',
+                  borderRadius: 4, marginBottom: 6 }} />
+              <div style={{ fontSize: 11, color: '#94A3B8' }}>OG Image</div>
+            </div>
+          )}
+          {profile.favicon_url && (
+            <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 10,
+              border: '1px solid #E2E8F0', textAlign: 'center' }}>
+              <img src={profile.favicon_url} alt="Favicon"
+                style={{ height: 32, width: 32, objectFit: 'contain', display: 'block', marginBottom: 6 }} />
+              <div style={{ fontSize: 11, color: '#94A3B8' }}>Favicon</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!hasMedia && !hasSocial && !hasContact && !hasInvoice && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94A3B8' }}>
+          <div style={{ fontSize: 36, marginBottom: 10 }}>🏢</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Profile not configured</div>
+          <div style={{ fontSize: 13, marginBottom: 16 }}>
+            Add logo, social media links, office address, and banking details.
+          </div>
+          <button className="btn btn-primary" onClick={onEdit}>+ Configure Profile</button>
+        </div>
+      )}
+
+      {(hasMedia || hasSocial || hasContact || hasInvoice) && (
+        <>
+          <Section title="Media Assets" icon="🖼️">
+            <Row label="Logo URL"       value={profile.logo_url} />
+            <Row label="Logo Dark URL"  value={profile.logo_dark_url} />
+            <Row label="Favicon URL"    value={profile.favicon_url} />
+            <Row label="OG Image URL"   value={profile.og_image_url} />
+            <Row label="Banner URL"     value={profile.banner_url} />
+          </Section>
+
+          <Section title="Social Media" icon="📱">
+            <Row label="Facebook"   value={profile.facebook_url} />
+            <Row label="Instagram"  value={profile.instagram_url} />
+            <Row label="Twitter/X"  value={profile.twitter_url} />
+            <Row label="YouTube"    value={profile.youtube_url} />
+            <Row label="LinkedIn"   value={profile.linkedin_url} />
+            <Row label="WhatsApp"   value={profile.whatsapp_number} />
+          </Section>
+
+          <Section title="Contact & Office" icon="📍">
+            <Row label="Support Phone" value={profile.support_phone} />
+            <Row label="Support Email" value={profile.support_email} />
+            <Row label="Google Maps"   value={profile.google_maps_url} />
+            <Row label="City"          value={profile.office_city} />
+            <Row label="State"         value={profile.office_state} />
+            <Row label="Pincode"       value={profile.office_pincode} />
+            <Row label="Country"       value={profile.office_country} />
+            <Row label="Office Address" value={profile.office_address} full />
+          </Section>
+
+          <Section title="Invoice & Banking Details" icon="🏦">
+            <Row label="Legal Business Name"  value={profile.business_legal_name} full />
+            <Row label="GSTIN"                value={profile.gstin} />
+            <Row label="PAN Number"           value={profile.pan_number} />
+            <Row label="Invoice Prefix"       value={profile.invoice_prefix} />
+            <Row label="UPI ID"               value={profile.upi_id} />
+            <Row label="Bank Account Name"    value={profile.bank_account_name} />
+            <Row label="Account Number"       value={profile.bank_account_number} />
+            <Row label="IFSC Code"            value={profile.bank_ifsc} />
+            <Row label="Bank Name"            value={profile.bank_name} />
+            <Row label="Bank Branch"          value={profile.bank_branch} />
+          </Section>
+
+          <Section title="About / Footer Content" icon="✍️">
+            <Row label="Tagline"        value={profile.tagline} full />
+            <Row label="Short About"    value={profile.about_short} full />
+            <Row label="Copyright Text" value={profile.copyright_text} full />
+          </Section>
+        </>
+      )}
+    </>
+  )
+}
+
+/* ─── Profile edit modal ─── */
+function ProfileEditModal({ form, setForm, brand, saving, onSave, onClose }: {
+  form: DomainProfile
+  setForm: (f: DomainProfile) => void
+  brand: string
+  saving: boolean
+  onSave: () => void
+  onClose: () => void
+}) {
+  const [section, setSection] = useState<'media'|'social'|'contact'|'invoice'|'about'>('media')
+  const update = (k: keyof DomainProfile, v: string) => setForm({ ...form, [k]: v })
+
+  const field = (label: string, k: keyof DomainProfile, placeholder?: string, hint?: string, type = 'text') => (
+    <div style={{ marginBottom: 14 }} key={k}>
+      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block',
+        marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
+      {type === 'textarea'
+        ? <textarea className="input" rows={3} placeholder={placeholder}
+            value={(form as any)[k] || ''} onChange={e => update(k, e.target.value)}
+            style={{ resize: 'vertical' }} />
+        : <input className="input" type={type} placeholder={placeholder}
+            value={(form as any)[k] || ''} onChange={e => update(k, e.target.value)} />
+      }
+      {hint && <p style={{ fontSize: 11, color: '#94A3B8', margin: '3px 0 0' }}>💡 {hint}</p>}
+    </div>
+  )
+
+  const grid2 = (...children: React.ReactNode[]) => (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>{children}</div>
+  )
+
+  const SECTIONS = [
+    { key: 'media',   label: '🖼️ Media',   },
+    { key: 'social',  label: '📱 Social',  },
+    { key: 'contact', label: '📍 Contact', },
+    { key: 'invoice', label: '🏦 Invoice', },
+    { key: 'about',   label: '✍️ About',   },
+  ] as const
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: 'white', borderRadius: 16, width: '100%', maxWidth: 700,
+        maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+
+        {/* Modal header */}
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #E2E8F0',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: '#0F172A', margin: 0 }}>
+            🏢 Edit Domain Profile
+          </h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none',
+            cursor: 'pointer', fontSize: 20, color: '#94A3B8', lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Section tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0',
+          padding: '0 24px', overflowX: 'auto' }}>
+          {SECTIONS.map(s => (
+            <button key={s.key} onClick={() => setSection(s.key as any)} style={{
+              padding: '10px 14px', border: 'none', background: 'none', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+              borderBottom: `3px solid ${section === s.key ? brand : 'transparent'}`,
+              color: section === s.key ? brand : '#64748B',
+              marginBottom: -1, transition: 'all 0.12s',
+            }}>{s.label}</button>
+          ))}
+        </div>
+
+        {/* Scrollable content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+
+          {section === 'media' && (
+            <>
+              <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE',
+                borderRadius: 10, padding: 14, marginBottom: 20, fontSize: 13, color: '#1D4ED8' }}>
+                ☁️ <b>Cloudinary Upload:</b> Upload images directly — crop, zoom and resize before saving.
+                Cloudinary credentials must be configured in <b>Settings → Cloudinary</b> tab first.
+              </div>
+              <CloudinaryImageUploader
+                label="Logo (Light)"
+                fieldKey="logo_url"
+                aspectRatio={4}
+                recommendedSize="400×100px"
+                hint="Shown in navbar (light background). Wide landscape format."
+                currentUrl={form.logo_url}
+                onChange={url => update('logo_url', url)}
+                brand={brand}
+              />
+              <CloudinaryImageUploader
+                label="Logo (Dark Mode)"
+                fieldKey="logo_dark_url"
+                aspectRatio={4}
+                recommendedSize="400×100px"
+                hint="Used on dark backgrounds. Leave blank to use same logo."
+                currentUrl={form.logo_dark_url}
+                onChange={url => update('logo_dark_url', url)}
+                brand={brand}
+              />
+              <CloudinaryImageUploader
+                label="Favicon"
+                fieldKey="favicon_url"
+                aspectRatio={1}
+                recommendedSize="64×64px"
+                hint="Browser tab icon — must be perfectly square."
+                currentUrl={form.favicon_url}
+                onChange={url => update('favicon_url', url)}
+                brand={brand}
+              />
+              <CloudinaryImageUploader
+                label="OG / Social Share Image"
+                fieldKey="og_image_url"
+                aspectRatio={1200/630}
+                recommendedSize="1200×630px"
+                hint="Shown when sharing links on WhatsApp, Facebook, Twitter etc."
+                currentUrl={form.og_image_url}
+                onChange={url => update('og_image_url', url)}
+                brand={brand}
+              />
+              <CloudinaryImageUploader
+                label="Hero Banner"
+                fieldKey="banner_url"
+                aspectRatio={16/9}
+                recommendedSize="1920×1080px"
+                hint="Full-width homepage hero banner image."
+                currentUrl={form.banner_url}
+                onChange={url => update('banner_url', url)}
+                brand={brand}
+              />
+            </>
+          )}
+
+          {section === 'social' && (
+            <>
+              {field('Facebook URL',   'facebook_url',   'https://facebook.com/yourpage')}
+              {field('Instagram URL',  'instagram_url',  'https://instagram.com/yourhandle')}
+              {field('Twitter / X URL','twitter_url',    'https://twitter.com/yourhandle')}
+              {field('YouTube URL',    'youtube_url',    'https://youtube.com/@yourchannel')}
+              {field('LinkedIn URL',   'linkedin_url',   'https://linkedin.com/company/your')}
+              {field('WhatsApp Number','whatsapp_number','+ 919876543210', 'Include country code. Used for click-to-chat links on website.')}
+            </>
+          )}
+
+          {section === 'contact' && (
+            <>
+              {grid2(
+                field('Support Phone', 'support_phone', '+91 98765 43210'),
+                field('Support Email', 'support_email', 'support@domain.com', undefined, 'email'),
+              )}
+              {field('Office Address', 'office_address', '123, Main Street, Locality', undefined, 'textarea')}
+              {grid2(
+                field('City',    'office_city',    'Bhubaneswar'),
+                field('State',   'office_state',   'Odisha'),
+                field('Pincode', 'office_pincode', '751001'),
+                field('Country', 'office_country', 'India'),
+              )}
+              {field('Google Maps URL', 'google_maps_url', 'https://maps.google.com/...', 'Embed or share link from Google Maps for your office location')}
+            </>
+          )}
+
+          {section === 'invoice' && (
+            <>
+              {field('Legal Business Name', 'business_legal_name', 'Palei Solutions Private Limited', 'Appears on invoices and GST receipts')}
+              {grid2(
+                field('GSTIN',          'gstin',          '21XXXXXXXXXXXXX'),
+                field('PAN Number',     'pan_number',     'ABCDE1234F'),
+                field('Invoice Prefix', 'invoice_prefix', 'PAL', 'e.g. PAL → PAL-2025-0001'),
+                field('UPI ID',         'upi_id',         'palei@upi'),
+              )}
+              <div style={{ marginTop: 8, marginBottom: 8, padding: '10px 14px',
+                background: '#F8FAFC', borderRadius: 8, fontSize: 12,
+                fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Bank Account Details
+              </div>
+              {field('Account Holder Name', 'bank_account_name', 'Palei Solutions Pvt Ltd')}
+              {grid2(
+                field('Account Number', 'bank_account_number', '1234567890'),
+                field('IFSC Code',      'bank_ifsc',           'SBIN0001234'),
+                field('Bank Name',      'bank_name',           'State Bank of India'),
+                field('Branch',         'bank_branch',         'Bhubaneswar Main Branch'),
+              )}
+            </>
+          )}
+
+          {section === 'about' && (
+            <>
+              {field('Tagline',        'tagline',        'Your Trusted Home Appliance Partner', 'Short one-line description shown in hero section and footer')}
+              {field('About (Short)',  'about_short',    'We provide...', '2–3 lines shown in website footer', 'textarea')}
+              {field('Copyright Text', 'copyright_text', '© 2025 Palei Solutions. All rights reserved.', 'Shown at the bottom of every page')}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '16px 24px', borderTop: '1px solid #E2E8F0',
+          display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={onSave} disabled={saving}
+            style={{ background: brand, border: 'none' }}>
+            {saving ? 'Saving…' : '💾 Save Profile'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─── Service Override Drawer ─────────────────────────────── */
+
+// ─── ContentTab — Includes / Excludes / FAQs ─────────────────────────────────
+function ContentTab({ data, setData }: {
+  data: DomainServiceOverride
+  setData: (d: DomainServiceOverride) => void
+}) {
+  const includes = data.includes || []
+  const excludes = data.excludes || []
+  const faqs     = data.faqs     || []
+
+  const setIncludes = (arr: string[]) => setData({ ...data, includes: arr })
+  const setExcludes = (arr: string[]) => setData({ ...data, excludes: arr })
+  const setFaqs     = (arr: FaqItem[]) => setData({ ...data, faqs: arr })
+
+  const listStyle: React.CSSProperties = {
+    border: '1px solid #E2E8F0', borderRadius: 10, overflow: 'hidden', marginBottom: 20,
+  }
+  const rowStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+    borderBottom: '1px solid #F1F5F9', background: 'white',
+  }
+  const inputStyle: React.CSSProperties = {
+    flex: 1, border: '1px solid #E2E8F0', borderRadius: 6, padding: '6px 10px',
+    fontSize: 13, outline: 'none',
+  }
+  const addBtnStyle: React.CSSProperties = {
+    width: '100%', padding: '8px 0', background: '#F8FAFC', border: 'none',
+    borderTop: '1px solid #E2E8F0', cursor: 'pointer', fontSize: 13, color: '#3B82F6',
+    fontWeight: 600,
+  }
+  const delBtnStyle: React.CSSProperties = {
+    background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444',
+    fontSize: 18, lineHeight: 1, padding: '0 2px',
+  }
+  const sectionLabel = (icon: string, title: string, sub: string) => (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>{icon} {title}</div>
+      <div style={{ fontSize: 12, color: '#64748B' }}>{sub}</div>
+    </div>
+  )
+
+  return (
+    <div>
+      {/* ── Includes ── */}
+      {sectionLabel('✅', "What's Included", 'Bullet-point list of what this service covers on this domain.')}
+      <div style={listStyle}>
+        {includes.map((item, i) => (
+          <div key={i} style={rowStyle}>
+            <span style={{ fontSize: 16, color: '#22C55E' }}>✓</span>
+            <input style={inputStyle} value={item}
+              onChange={e => {
+                const a = [...includes]; a[i] = e.target.value; setIncludes(a)
+              }}
+              placeholder="e.g. Deep cleaning of all surfaces" />
+            <button style={delBtnStyle} onClick={() => {
+              const a = [...includes]; a.splice(i, 1); setIncludes(a)
+            }}>×</button>
+          </div>
+        ))}
+        <button style={addBtnStyle} onClick={() => setIncludes([...includes, ''])}>
+          + Add Inclusion
+        </button>
+      </div>
+
+      {/* ── Excludes ── */}
+      {sectionLabel('🚫', "What's Excluded", 'Things this service does NOT cover (sets clear expectations).')}
+      <div style={listStyle}>
+        {excludes.map((item, i) => (
+          <div key={i} style={rowStyle}>
+            <span style={{ fontSize: 16, color: '#EF4444' }}>✕</span>
+            <input style={inputStyle} value={item}
+              onChange={e => {
+                const a = [...excludes]; a[i] = e.target.value; setExcludes(a)
+              }}
+              placeholder="e.g. Outdoor area cleaning" />
+            <button style={delBtnStyle} onClick={() => {
+              const a = [...excludes]; a.splice(i, 1); setExcludes(a)
+            }}>×</button>
+          </div>
+        ))}
+        <button style={addBtnStyle} onClick={() => setExcludes([...excludes, ''])}>
+          + Add Exclusion
+        </button>
+      </div>
+
+      {/* ── FAQs ── */}
+      {sectionLabel('❓', 'FAQs', 'Domain-specific frequently asked questions for this service.')}
+      <div>
+        {faqs.map((faq, i) => (
+          <div key={i} style={{ ...listStyle, marginBottom: 10 }}>
+            <div style={{ ...rowStyle, borderBottom: '1px solid #F1F5F9', background: '#FAFAFA' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#374151', whiteSpace: 'nowrap' }}>Q{i+1}</span>
+              <input style={inputStyle} value={faq.q}
+                onChange={e => {
+                  const a = [...faqs]; a[i] = { ...a[i], q: e.target.value }; setFaqs(a)
+                }}
+                placeholder="e.g. How long does the service take?" />
+              <button style={delBtnStyle} onClick={() => {
+                const a = [...faqs]; a.splice(i, 1); setFaqs(a)
+              }}>×</button>
+            </div>
+            <div style={{ ...rowStyle, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#374151', whiteSpace: 'nowrap', paddingTop: 4 }}>A</span>
+              <textarea
+                style={{ ...inputStyle, resize: 'vertical', minHeight: 60, fontFamily: 'inherit' }}
+                value={faq.a}
+                onChange={e => {
+                  const a = [...faqs]; a[i] = { ...a[i], a: e.target.value }; setFaqs(a)
+                }}
+                placeholder="Type the answer here…"
+              />
+            </div>
+          </div>
+        ))}
+        <button
+          style={{ ...addBtnStyle, background: '#EFF6FF', border: '1px dashed #BFDBFE',
+            borderRadius: 8, color: '#3B82F6', marginTop: 4 }}
+          onClick={() => setFaqs([...faqs, { q: '', a: '' }])}>
+          + Add FAQ
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ServiceOverrideDrawer({
+  domainId, brand, service, data, setData, saving, onSave, onClose,
+}: {
+  domainId: string
+  brand: string
+  service: LinkedService
+  data: DomainServiceOverride
+  setData: (d: DomainServiceOverride) => void
+  saving: boolean
+  onSave: () => void
+  onClose: () => void
+}) {
+  const [tab, setTab] = useState<'images'|'seo'|'content'>('images')
+  const update = (k: keyof DomainServiceOverride, v: string | null) =>
+    setData({ ...data, [k]: v ?? undefined })
+
+  const field = (label: string, k: keyof DomainServiceOverride, placeholder?: string, type = 'text') => (
+    <div style={{ marginBottom: 14 }} key={k}>
+      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block',
+        marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
+      {type === 'textarea'
+        ? <textarea className="input" rows={2} placeholder={placeholder}
+            value={(data as any)[k] || ''}
+            onChange={e => update(k, e.target.value)}
+            style={{ resize: 'vertical' }} />
+        : <input className="input" type="text" placeholder={placeholder}
+            value={(data as any)[k] || ''}
+            onChange={e => update(k, e.target.value)} />
+      }
+    </div>
+  )
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: 'white', borderRadius: 16, width: '100%', maxWidth: 680,
+        maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+
+        {/* Header */}
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #E2E8F0',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0F172A', margin: 0 }}>
+              🖼️ Domain Override — {service.name}
+            </h2>
+            <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0' }}>
+              Set a domain-specific image and SEO for this service. These override global service defaults on this domain's frontend.
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none',
+            cursor: 'pointer', fontSize: 20, color: '#94A3B8', lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', padding: '0 24px' }}>
+          {(['images', 'seo', 'content'] as const).map((key) => {
+            const labels: Record<string, string> = { images: '🖼️ Images', seo: '🔍 SEO', content: '📋 Content' }
+            return (
+            <button key={key} onClick={() => setTab(key)} style={{
+              padding: '10px 18px', border: 'none', background: 'none', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600,
+              borderBottom: `3px solid ${tab === key ? brand : 'transparent'}`,
+              color: tab === key ? brand : '#64748B',
+              marginBottom: -1, transition: 'all 0.12s',
+            }}>{labels[key]}</button>
+          )})}
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+
+          {tab === 'images' && (
+            <>
+              <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE',
+                borderRadius: 10, padding: 14, marginBottom: 20, fontSize: 13, color: '#1D4ED8' }}>
+                ☁️ <b>Domain-scoped Cloudinary upload:</b> These images are uploaded independently
+                for <b>this domain</b>, so each domain's frontend can show a different visual for the same service.
+              </div>
+
+              <CloudinaryImageUploader
+                label="Service Main Image"
+                fieldKey={`svc_${service.service_id}_image`}
+                aspectRatio={4/3}
+                recommendedSize="800×600px"
+                hint="Displayed on the service detail page for this domain."
+                currentUrl={data.image_url}
+                onChange={url => update('image_url', url)}
+                brand={brand}
+              />
+
+              <CloudinaryImageUploader
+                label="Service Card Thumbnail"
+                fieldKey={`svc_${service.service_id}_thumb`}
+                aspectRatio={16/9}
+                recommendedSize="400×225px"
+                hint="Shown in service listing cards on this domain. Wide 16:9 format."
+                currentUrl={data.thumbnail_url}
+                onChange={url => update('thumbnail_url', url)}
+                brand={brand}
+              />
+
+              {/* Preview if both images set */}
+              {(data.image_url || data.thumbnail_url) && (
+                <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
+                  {data.image_url && (
+                    <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 10,
+                      border: '1px solid #E2E8F0', textAlign: 'center' }}>
+                      <img src={data.image_url} alt="Main"
+                        style={{ height: 80, width: 107, objectFit: 'cover', borderRadius: 6 }} />
+                      <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>Main Image</div>
+                    </div>
+                  )}
+                  {data.thumbnail_url && (
+                    <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 10,
+                      border: '1px solid #E2E8F0', textAlign: 'center' }}>
+                      <img src={data.thumbnail_url} alt="Thumb"
+                        style={{ height: 80, width: 142, objectFit: 'cover', borderRadius: 6 }} />
+                      <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>Thumbnail</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {tab === 'seo' && (
+            <>
+              <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A',
+                borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: '#92400E' }}>
+                🔍 These SEO fields apply only when this service is viewed on <b>this domain's</b> frontend.
+                Leave blank to fall back to the global service SEO / domain SEO.
+              </div>
+              {field('Meta Title', 'meta_title', `${service.name} | YourDomain`)}
+              {field('Meta Description', 'meta_description', 'Short description for search results…', 'textarea')}
+              {field('Meta Keywords', 'meta_keywords', 'keyword1, keyword2, keyword3')}
+              <div style={{ marginTop: 8, marginBottom: 12, padding: '8px 12px',
+                background: '#F8FAFC', borderRadius: 8, fontSize: 12,
+                fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Open Graph (Social Share)
+              </div>
+              {field('OG Title', 'og_title', `Book ${service.name} Online`)}
+              {field('OG Description', 'og_description', 'Short OG description…', 'textarea')}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block',
+                  marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>OG Image URL</label>
+                <CloudinaryImageUploader
+                  label=""
+                  fieldKey={`svc_${service.service_id}_og`}
+                  aspectRatio={1200/630}
+                  recommendedSize="1200×630px"
+                  hint="Social share image for this service on this domain. 1200×630px recommended."
+                  currentUrl={data.og_image_url}
+                  onChange={url => update('og_image_url', url)}
+                  brand={brand}
+                />
+              </div>
+              <div style={{ marginTop: 10, padding: '8px 12px', background: '#F0FDF4',
+                borderRadius: 8, fontSize: 12, color: '#166534', border: '1px solid #BBF7D0' }}>
+                ✅ Canonical URL, Robots meta, and JSON-LD Schema are auto-generated by each domain's frontend using service + domain data.
+              </div>
+            </>
+          )}
+
+          {tab === 'content' && (
+            <ContentTab data={data} setData={setData} />
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '16px 24px', borderTop: '1px solid #E2E8F0',
+          display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+          <span style={{ fontSize: 12, color: '#94A3B8', flex: 1 }}>
+            Overrides only affect this domain's frontend display.
+          </span>
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={onSave} disabled={saving}
+            style={{ background: brand, border: 'none' }}>
+            {saving ? 'Saving…' : '💾 Save Override'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

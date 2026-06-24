@@ -1,0 +1,433 @@
+import { useEffect, useState, useCallback } from 'react'
+import { settingsAPI } from '@/services/api'
+import PageHeader from '@/components/layout/PageHeader'
+import Spinner from '@/components/ui/Spinner'
+import CloudinaryImageUploader from '@/components/ui/CloudinaryImageUploader'
+import { usePlatformStore } from '@/store/platformStore'
+
+// ── Types ─────────────────────────────────────────────────────
+type TabKey = 'Platform' | 'General' | 'Payment' | 'Notification' | 'Security' | 'Cloudinary'
+
+interface FieldDef {
+  key: string
+  label: string
+  type: 'text' | 'email' | 'password' | 'number' | 'textarea' | 'url'
+  placeholder?: string
+  hint?: string
+}
+
+// ── Field definitions per tab ─────────────────────────────────
+const FIELDS: Record<TabKey, FieldDef[]> = {
+  Platform: [],  // rendered separately with image uploaders
+  General: [
+    { key: 'app_name',         label: 'App Name',         type: 'text',  placeholder: 'Palei Solutions' },
+    { key: 'support_phone',    label: 'Support Phone',    type: 'text',  placeholder: '+91 98765 43210' },
+    { key: 'support_email',    label: 'Support Email',    type: 'email', placeholder: 'support@palei.in' },
+    { key: 'business_address', label: 'Business Address', type: 'textarea', placeholder: '123, Main Street, Bhubaneswar' },
+    { key: 'gst_number',       label: 'GST Number',       type: 'text',  placeholder: '21XXXXXXXXXXXXX' },
+    { key: 'invoice_prefix',   label: 'Invoice Prefix',   type: 'text',  placeholder: 'PAL',  hint: 'Used as prefix for invoice numbers' },
+    { key: 'currency',         label: 'Currency Code',    type: 'text',  placeholder: 'INR' },
+    { key: 'timezone',         label: 'Timezone',         type: 'text',  placeholder: 'Asia/Kolkata' },
+  ],
+  Payment: [
+    { key: 'razorpay_key_id',     label: 'Razorpay Key ID',     type: 'text',     placeholder: 'rzp_live_...' },
+    { key: 'razorpay_key_secret', label: 'Razorpay Key Secret', type: 'password', placeholder: '••••••••', hint: 'Stored encrypted. Enter new value to change.' },
+    { key: 'payment_gateway',     label: 'Payment Gateway',     type: 'text',     placeholder: 'razorpay' },
+    { key: 'upi_enabled',         label: 'UPI Enabled',         type: 'text',     placeholder: 'true' },
+    { key: 'cash_enabled',        label: 'Cash Enabled',        type: 'text',     placeholder: 'true' },
+  ],
+  Notification: [
+    { key: 'sms_api_key',       label: 'SMS API Key',         type: 'password', hint: 'Enter new value to update.' },
+    { key: 'sms_sender_id',     label: 'SMS Sender ID',       type: 'text',     placeholder: 'PALEIS' },
+    { key: 'whatsapp_api_key',  label: 'WhatsApp API Key',    type: 'password', hint: 'Enter new value to update.' },
+    { key: 'whatsapp_phone_id', label: 'WhatsApp Phone ID',   type: 'text',     placeholder: '1234567890' },
+    { key: 'email_host',        label: 'Email SMTP Host',     type: 'text',     placeholder: 'smtp.gmail.com' },
+    { key: 'email_port',        label: 'Email SMTP Port',     type: 'number',   placeholder: '587' },
+    { key: 'email_username',    label: 'Email Username',      type: 'email',    placeholder: 'noreply@yourdomain.com' },
+    { key: 'email_password',    label: 'Email Password',      type: 'password', hint: 'Enter new value to update.' },
+    { key: 'from_email',        label: 'From Email',          type: 'email',    placeholder: 'noreply@palei.in' },
+    { key: 'from_name',         label: 'From Name',           type: 'text',     placeholder: 'Palei Solutions' },
+  ],
+  Security: [
+    { key: 'otp_expiry_minutes',  label: 'OTP Expiry (minutes)',    type: 'number', placeholder: '10' },
+    { key: 'jwt_expiry_minutes',  label: 'JWT Access Token (mins)', type: 'number', placeholder: '30' },
+    { key: 'refresh_token_days',  label: 'Refresh Token (days)',    type: 'number', placeholder: '30' },
+    { key: 'max_login_attempts',  label: 'Max Login Attempts',      type: 'number', placeholder: '5' },
+  ],
+  Cloudinary: [
+    { key: 'cloud_name',    label: 'Cloud Name',    type: 'text',     placeholder: 'your-cloud-name',    hint: 'Found in Cloudinary Dashboard → Account Details' },
+    { key: 'api_key',       label: 'API Key',       type: 'text',     placeholder: '123456789012345',    hint: 'Found in Cloudinary Dashboard → API Keys' },
+    { key: 'api_secret',    label: 'API Secret',    type: 'password', placeholder: '••••••••••••••••',  hint: 'Stored securely. Enter new value to change.' },
+    { key: 'upload_preset', label: 'Upload Preset', type: 'text',     placeholder: 'palei_unsigned',     hint: 'Create an unsigned upload preset in Cloudinary → Settings → Upload' },
+    { key: 'folder',        label: 'Default Folder',type: 'text',     placeholder: 'palei',              hint: 'All uploads go into this folder in your Cloudinary media library' },
+  ],
+}
+
+const TAB_ICONS: Record<TabKey, string> = {
+  Platform: '🏢', General: '⚙️', Payment: '💳', Notification: '🔔', Security: '🔒', Cloudinary: '☁️',
+}
+
+const TAB_API: Record<TabKey, { get: () => Promise<any>; put: (d: any) => Promise<any> }> = {
+  Platform:     { get: () => settingsAPI.platform(),      put: (d) => settingsAPI.updatePlatform(d) },
+  General:      { get: () => settingsAPI.general(),      put: (d) => settingsAPI.updateGeneral(d) },
+  Payment:      { get: () => settingsAPI.payment(),      put: (d) => settingsAPI.updatePayment(d) },
+  Notification: { get: () => settingsAPI.notification(), put: (d) => settingsAPI.updateNotification(d) },
+  Security:     { get: () => settingsAPI.security(),     put: (d) => settingsAPI.updateSecurity(d) },
+  Cloudinary:   { get: () => settingsAPI.cloudinary(),   put: (d) => settingsAPI.updateCloudinary(d) },
+}
+
+const TABS: TabKey[] = ['Platform', 'General', 'Payment', 'Notification', 'Security', 'Cloudinary']
+
+// ── Reusable field renderer ───────────────────────────────────
+function SettingField({ def, value, onChange }: {
+  def: FieldDef; value: string; onChange: (v: string) => void
+}) {
+  const [show, setShow] = useState(false)
+  const isSecret = def.type === 'password'
+  const isMasked = isSecret && value === '***'
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '9px 12px', borderRadius: 8,
+    border: '1.5px solid #E2E8F0', fontSize: 14, outline: 'none',
+    background: isMasked ? '#F8FAFC' : 'white', color: '#0F172A',
+    boxSizing: 'border-box' as any,
+    fontFamily: isSecret && !show ? 'monospace' : 'inherit',
+  }
+
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <label style={{ display: 'block', fontSize: 12, fontWeight: 700,
+        color: '#374151', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        {def.label}
+      </label>
+      <div style={{ position: 'relative' }}>
+        {def.type === 'textarea' ? (
+          <textarea
+            rows={3}
+            style={{ ...inputStyle, resize: 'vertical' }}
+            placeholder={def.placeholder}
+            value={isMasked ? '' : value}
+            onChange={e => onChange(e.target.value)}
+          />
+        ) : (
+          <input
+            type={isSecret && !show ? 'password' : def.type === 'password' ? 'text' : def.type}
+            style={inputStyle}
+            placeholder={isMasked ? 'Enter new value to change' : def.placeholder}
+            value={isMasked ? '' : value}
+            onChange={e => onChange(e.target.value)}
+          />
+        )}
+        {isSecret && !isMasked && (
+          <button
+            type="button"
+            onClick={() => setShow(s => !s)}
+            style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+              background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#94A3B8' }}>
+            {show ? '🙈' : '👁'}
+          </button>
+        )}
+      </div>
+      {def.hint && (
+        <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>💡 {def.hint}</p>
+      )}
+    </div>
+  )
+}
+
+// ── Cloudinary test widget ────────────────────────────────────
+function CloudinaryTestWidget({ settings }: { settings: Record<string, string> }) {
+  const allSet = settings.cloud_name && settings.api_key && settings.upload_preset
+  if (!allSet) return null
+  return (
+    <div style={{ marginTop: 20, padding: 16, background: '#F0FDF4',
+      border: '1px solid #86EFAC', borderRadius: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 20 }}>☁️</span>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: '#166534' }}>Cloudinary Connected</div>
+          <div style={{ fontSize: 12, color: '#15803D' }}>Cloud: <b>{settings.cloud_name}</b> · Preset: <b>{settings.upload_preset}</b></div>
+        </div>
+      </div>
+      <p style={{ fontSize: 12, color: '#166534', margin: 0 }}>
+        ✅ Images uploaded from Domain Profile (logo, OG image, banner) will use these credentials.
+        Folder: <b>{settings.folder || 'root'}</b>
+      </p>
+    </div>
+  )
+}
+
+// ── Platform Tab renderer ────────────────────────────────────
+function PlatformTab({ data, update, cloudSettings }: { data: Record<string, string>; update: (k: string, v: string) => void; cloudSettings: Record<string, string> }) {
+  const hasCloud = !!(cloudSettings.cloud_name && cloudSettings.api_key && cloudSettings.upload_preset)
+  const inp: React.CSSProperties = {
+    width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid #E2E8F0',
+    fontSize: 14, outline: 'none', boxSizing: 'border-box' as any, color: '#0F172A',
+  }
+  return (
+    <div>
+      {!hasCloud && (
+        <div style={{ background: '#FFF7ED', border: '1px solid #FCD34D', borderRadius: 10, padding: '12px 16px', marginBottom: 20 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: '#92400E', marginBottom: 4 }}>⚠️ Cloudinary not configured</div>
+          <div style={{ fontSize: 12, color: '#92400E' }}>
+            Logo and Favicon upload requires Cloudinary. Go to the <b>Cloudinary</b> tab and enter your credentials first.
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
+        <div>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Platform Name</label>
+          <input style={inp} value={data.app_name || ''} onChange={e => update('app_name', e.target.value)} placeholder="e.g. Bibek Enterprises" />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Tagline</label>
+          <input style={inp} value={data.tagline || ''} onChange={e => update('tagline', e.target.value)} placeholder="Home Services Platform" />
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
+        <div>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Support Email</label>
+          <input style={inp} type="email" value={data.support_email || ''} onChange={e => update('support_email', e.target.value)} placeholder="support@example.com" />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Support Phone</label>
+          <input style={inp} value={data.support_phone || ''} onChange={e => update('support_phone', e.target.value)} placeholder="+91 98765 43210" />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 18 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Business Address</label>
+        <textarea style={{ ...inp, resize: 'none' } as any} rows={2} value={data.address || ''} onChange={e => update('address', e.target.value)} placeholder="123, Main Street, Bhubaneswar, Odisha" />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 24 }}>
+        <div>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>GST Number</label>
+          <input style={inp} value={data.gst_number || ''} onChange={e => update('gst_number', e.target.value)} placeholder="21XXXXXXXXXXXXX" />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Website URL</label>
+          <input style={inp} value={data.website_url || ''} onChange={e => update('website_url', e.target.value)} placeholder="https://yoursite.com" />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Primary Brand Color</label>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <input type="color" value={data.primary_color || '#1B4FD8'} onChange={e => update('primary_color', e.target.value)}
+            style={{ width: 48, height: 40, border: '1.5px solid #E2E8F0', borderRadius: 8, cursor: 'pointer', padding: 3 }} />
+          <input style={{ ...inp, flex: 1 }} value={data.primary_color || ''} onChange={e => update('primary_color', e.target.value)} placeholder="#1B4FD8" />
+        </div>
+        <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>💡 Used for sidebar accents and brand elements.</p>
+      </div>
+
+      {/* Logo upload */}
+      <div style={{ marginBottom: 24, padding: 20, background: '#F8FAFC', borderRadius: 12, border: '1px solid #E2E8F0' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', marginBottom: 14 }}>🖼️ Logo</div>
+        {hasCloud
+          ? <CloudinaryImageUploader fieldKey="platform_logo" label="Logo" aspectRatio={4}
+              currentUrl={data.logo_url || ''} onChange={url => update('logo_url', url)}
+              hint="Recommended: 400×100px PNG/SVG. Shown in sidebar and emails." />
+          : <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <input style={inp} value={data.logo_url || ''} onChange={e => update('logo_url', e.target.value)} placeholder="https://example.com/logo.png" />
+            </div>
+        }
+      </div>
+
+      {/* Favicon upload */}
+      <div style={{ marginBottom: 24, padding: 20, background: '#F8FAFC', borderRadius: 12, border: '1px solid #E2E8F0' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', marginBottom: 14 }}>🔖 Favicon</div>
+        {hasCloud
+          ? <CloudinaryImageUploader fieldKey="platform_favicon" label="Favicon" aspectRatio={1}
+              currentUrl={data.favicon_url || ''} onChange={url => update('favicon_url', url)}
+              hint="Recommended: 64×64px square PNG/ICO. Shows in browser tab." />
+          : <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <input style={inp} value={data.favicon_url || ''} onChange={e => update('favicon_url', e.target.value)} placeholder="https://example.com/favicon.ico" />
+            </div>
+        }
+      </div>
+
+      {/* Live preview */}
+      <div style={{ padding: 16, background: '#0F1729', borderRadius: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sidebar Preview</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {data.logo_url
+            ? <img src={data.logo_url} style={{ height: 32, objectFit: 'contain', borderRadius: 6, background: 'rgba(255,255,255,0.1)', padding: 4 }} alt="logo" />
+            : <div style={{ width: 32, height: 32, background: data.primary_color || '#1B4FD8', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 14 }}>
+                {(data.app_name || 'P').charAt(0).toUpperCase()}
+              </div>
+          }
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#fff' }}>{data.app_name || 'Your Platform'}</div>
+            <div style={{ fontSize: 10, color: '#475569' }}>{data.tagline || 'Admin Dashboard'}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Settings component ───────────────────────────────────
+export default function Settings() {
+  const [tab, setTab]         = useState<TabKey>('Platform')
+  const [data, setData]       = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [saving,  setSaving]  = useState(false)
+  const [saved,   setSaved]   = useState(false)
+  const [err,     setErr]     = useState('')
+  const [cloudSettings, setCloudSettings] = useState<Record<string, string>>({})
+  const { load: reloadPlatform } = usePlatformStore()
+
+  const loadTab = useCallback(async (t: TabKey) => {
+    setLoading(true); setErr(''); setSaved(false)
+    try {
+      const r = await TAB_API[t].get()
+      setData(r.data?.data || {})
+      // Also load cloudinary settings when on Platform tab (needed for upload widget)
+      if (t === 'Platform') {
+        try {
+          const cr = await settingsAPI.cloudinary()
+          setCloudSettings(cr.data?.data || {})
+        } catch { /* ignore */ }
+      }
+    } catch {
+      setData({})
+      setErr('Failed to load settings. Is the backend running?')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadTab(tab) }, [tab, loadTab])
+
+  const save = async () => {
+    setSaving(true); setErr(''); setSaved(false)
+    try {
+      await TAB_API[tab].put(data)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+      // Reload global platform settings if we saved the Platform tab
+      if (tab === 'Platform') reloadPlatform()
+    } catch (e: any) {
+      setErr(e.response?.data?.detail || 'Failed to save settings.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const update = (key: string, val: string) =>
+    setData(prev => ({ ...prev, [key]: val }))
+
+  return (
+    <div style={{ padding: '24px 28px' }}>
+      <PageHeader title="System Settings" subtitle="Configure platform credentials and operational defaults" />
+
+      {/* ── Tab Bar ── */}
+      <div style={{ display: 'flex', gap: 6, marginTop: 20, marginBottom: 24,
+        borderBottom: '2px solid #E2E8F0', paddingBottom: 0 }}>
+        {TABS.map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{
+            padding: '10px 18px', border: 'none', background: 'none', cursor: 'pointer',
+            fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7,
+            borderBottom: `3px solid ${tab === t ? '#1B4FD8' : 'transparent'}`,
+            color: tab === t ? '#1B4FD8' : '#64748B',
+            marginBottom: -2, transition: 'all 0.15s',
+          }}>
+            <span>{TAB_ICONS[t]}</span> {t}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 60 }}><Spinner /></div>
+      ) : (
+        <div style={{ maxWidth: 680 }}>
+          {/* ── Platform info banner ── */}
+          {tab === 'Platform' && (
+            <div style={{ marginBottom: 20, padding: 16, background: '#EFF6FF',
+              border: '1px solid #BFDBFE', borderRadius: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1E40AF', marginBottom: 6 }}>
+                🏢 Platform Branding — Your Admin Dashboard Identity
+              </div>
+              <p style={{ fontSize: 13, color: '#1D4ED8', margin: 0, lineHeight: 1.6 }}>
+                Set your platform name, logo, and favicon. These appear in the sidebar, browser tab, emails,
+                and invoices. Upload images using Cloudinary (configure it in the <b>Cloudinary</b> tab first).
+              </p>
+            </div>
+          )}
+
+          {/* ── Cloudinary info banner ── */}
+          {tab === 'Cloudinary' && (
+            <div style={{ marginBottom: 20, padding: 16, background: '#EFF6FF',
+              border: '1px solid #BFDBFE', borderRadius: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1E40AF', marginBottom: 6 }}>
+                ☁️ Cloudinary — Media Storage for Domain Uploads
+              </div>
+              <p style={{ fontSize: 13, color: '#1D4ED8', margin: 0, lineHeight: 1.6 }}>
+                Cloudinary is used to upload logos, OG images, favicons, and banners from the{' '}
+                <b>Domain → Profile</b> tab. Set up a free account at{' '}
+                <a href="https://cloudinary.com" target="_blank" rel="noreferrer"
+                  style={{ color: '#1D4ED8', fontWeight: 700 }}>cloudinary.com</a>{' '}
+                then paste your credentials below.
+              </p>
+            </div>
+          )}
+
+          {/* ── Fields ── */}
+          <div style={{ background: 'white', borderRadius: 14, padding: 28,
+            border: '1px solid #E2E8F0', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#0F172A',
+              marginBottom: 22, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {TAB_ICONS[tab]} {tab} Settings
+            </h3>
+
+            {tab === 'Platform'
+              ? <PlatformTab data={data} update={update} cloudSettings={cloudSettings} />
+              : FIELDS[tab].map(def => (
+                  <SettingField
+                    key={def.key}
+                    def={def}
+                    value={data[def.key] || ''}
+                    onChange={val => update(def.key, val)}
+                  />
+                ))
+            }
+
+            {/* Cloudinary status widget */}
+            {tab === 'Cloudinary' && <CloudinaryTestWidget settings={data} />}
+
+            {/* Feedback */}
+            {saved && (
+              <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC',
+                borderRadius: 8, padding: '10px 14px', color: '#166534',
+                fontSize: 13, marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+                ✅ {tab} settings saved successfully.
+              </div>
+            )}
+            {err && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA',
+                borderRadius: 8, padding: '10px 14px', color: '#991B1B',
+                fontSize: 13, marginBottom: 16 }}>
+                ⚠️ {err}
+              </div>
+            )}
+
+            <button
+              onClick={save}
+              disabled={saving}
+              style={{ display: 'flex', alignItems: 'center', gap: 8,
+                background: '#1B4FD8', color: 'white', border: 'none',
+                borderRadius: 8, padding: '10px 24px', fontSize: 14,
+                fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer',
+                opacity: saving ? 0.7 : 1, transition: 'opacity 0.15s' }}>
+              {saving ? <><Spinner size="sm" /> Saving…</> : `💾 Save ${tab} Settings`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
