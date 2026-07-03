@@ -126,6 +126,43 @@ export default function BookingModal({
   const [saving,  setSaving]  = useState(false)
   const [err,     setErr]     = useState<any>('')
   const [created, setCreated] = useState<any[]>([])
+  // Duplicate override (admin only) — shown after a 409 duplicate block
+  const [forceDuplicate,   setForceDuplicate]   = useState(false)
+  const [showForceOption,  setShowForceOption]  = useState(false)
+
+  // ── Quick-add address (inline, used when the customer has zero saved
+  // addresses -- previously this just showed a dead-end warning and left
+  // the "Continue to Book Service" button permanently disabled with no
+  // way to proceed without abandoning the whole flow) ──
+  const [showAddAddr, setShowAddAddr] = useState(false)
+  const [addrForm, setAddrForm] = useState({
+    label: 'Home', address_line1: '', address_line2: '',
+    city: '', state: '', pincode: '',
+  })
+  const [addrSaving, setAddrSaving] = useState(false)
+  const [addrErr,    setAddrErr]    = useState('')
+
+  const setAddrField = (k: string, v: string) => setAddrForm(f => ({ ...f, [k]: v }))
+
+  const saveQuickAddress = async () => {
+    if (!customer) return
+    if (!addrForm.address_line1.trim() || !addrForm.city.trim() || !addrForm.state.trim() || !addrForm.pincode.trim()) {
+      setAddrErr('Address line, city, state and pincode are all required')
+      return
+    }
+    setAddrSaving(true); setAddrErr('')
+    try {
+      await customersAPI.addAddress(customer.id, { ...addrForm, is_default: true })
+      const aRes = await customersAPI.addresses(customer.id)
+      setAddresses(aRes.data.data || [])
+      setShowAddAddr(false)
+      setAddrForm({ label: 'Home', address_line1: '', address_line2: '', city: '', state: '', pincode: '' })
+    } catch (ex: any) {
+      setAddrErr(ex.response?.data?.detail || 'Failed to save address')
+    } finally {
+      setAddrSaving(false)
+    }
+  }
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
@@ -144,7 +181,7 @@ export default function BookingModal({
       .then(r => setAllSvcs(r.data.data?.items || r.data.data || []))
       .catch(() => setAllSvcs([]))
       .finally(() => setLoadSvc(false))
-    setSelSvc(null); set('service_id', ''); setSvcSearch('')
+    setSelSvc(null); set('service_id', ''); setSvcSearch(''); setShowForceOption(false); setForceDuplicate(false)
   }, [form.domain_id])
 
   // ── load city prices when service changes ──
@@ -244,7 +281,8 @@ export default function BookingModal({
         priority:        form.priority,
         source:          'CALL_CENTER',
         domain_id:       form.domain_id || undefined,
-        force_duplicate: false,
+        city_id:         cityPrice?.city_id || undefined,
+        force_duplicate: forceDuplicate,
       }
       if (selAppl) {
         payload.appliance_brand = selAppl.brand_name || selAppl.category || undefined
@@ -254,12 +292,17 @@ export default function BookingModal({
       const b = res.data.data
       setCreated(prev => [...prev, b])
       setSelSvc(null); setSvcSearch('')
-      setForm(f => ({ ...f, service_id: '', scheduled_date: '', scheduled_slot: '', appliance_id: '', notes: '' }))
+      setForm(f => ({ ...f, service_id: '', scheduled_date: '', scheduled_slot: '', appliance_id: '', notes: '' })); setShowForceOption(false); setForceDuplicate(false)
     } catch (ex: any) {
       const detail: string = ex.response?.data?.detail || ''
       if (detail.startsWith('DUPLICATE:')) {
         const parts = detail.split(':')
-        setErr(`⚠ Duplicate booking blocked: ${parts[1]} (${parts[2]}). Same service + same address already has an active booking. Cancel the existing one first.`)
+        const bkNum = parts[1] ?? ''
+        const bkStatus = parts[2] ?? ''
+        const catName = parts[3] ?? ''
+        const catMsg = catName ? ` in category "${catName}"` : ''
+        setErr(`⚠ Duplicate blocked: Booking ${bkNum} (${bkStatus}) is already active${catMsg} at this address. Cancel/complete it first, or tick "Force create" below to override.`)
+        setShowForceOption(true)
       } else {
         setErr(detail || 'Failed to create booking')
       }
@@ -353,8 +396,8 @@ export default function BookingModal({
                     {activeBkgCount} Active / Running Booking{activeBkgCount > 1 ? 's' : ''} Found
                   </div>
                   <div style={{ fontSize: 12, color: '#EA580C', marginTop: 1 }}>
-                    Review the bookings below. Creating the same service + same address again will be blocked as a duplicate.
-                    A different service or different address is allowed.
+                    Review the bookings below. Creating a booking in the <strong>same category</strong> at the <strong>same address</strong> will be blocked as a duplicate.
+                    A different category (e.g. AC vs Washing Machine) at the same address is allowed. A different address is always allowed.
                   </div>
                 </div>
               </div>
@@ -446,7 +489,7 @@ export default function BookingModal({
                       {/* Active note */}
                       {isActive && (
                         <div style={{ marginTop: 6, fontSize: 11, color: '#B45309', background: '#FEF3C7', padding: '3px 8px', borderRadius: 5, display: 'inline-block' }}>
-                          ⚠ Same service + same address = duplicate (will be blocked)
+                          ⚠ Same category + same address = duplicate (will be blocked)
                         </div>
                       )}
                     </div>
@@ -456,10 +499,64 @@ export default function BookingModal({
             )}
           </div>
 
-          {/* Address warning */}
-          {addresses.length === 0 && (
-            <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#92400E' }}>
-              ⚠ This customer has <b>no saved addresses</b>. You need to add an address from the Customers page before booking.
+          {/* Address warning + inline quick-add (previously this was a dead end:
+              the Continue button was just silently disabled with no way to act
+              on it from here) */}
+          {addresses.length === 0 && !showAddAddr && (
+            <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: '12px 14px', marginBottom: 14, fontSize: 13, color: '#92400E' }}>
+              <div style={{ marginBottom: 8 }}>
+                ⚠ This customer has <b>no saved addresses</b>, so booking can't continue yet.
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowAddAddr(true)}>
+                + Add Address Now
+              </button>
+            </div>
+          )}
+
+          {addresses.length === 0 && showAddAddr && (
+            <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: 14, marginBottom: 14 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Add Address for {customer?.name}</h4>
+              <Err msg={addrErr} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={lbl}>Address Line 1 *</label>
+                  <input className="input" value={addrForm.address_line1}
+                    onChange={e => setAddrField('address_line1', e.target.value)} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={lbl}>Address Line 2</label>
+                  <input className="input" value={addrForm.address_line2}
+                    onChange={e => setAddrField('address_line2', e.target.value)} />
+                </div>
+                <div>
+                  <label style={lbl}>City *</label>
+                  <input className="input" value={addrForm.city}
+                    onChange={e => setAddrField('city', e.target.value)} />
+                </div>
+                <div>
+                  <label style={lbl}>State *</label>
+                  <input className="input" value={addrForm.state}
+                    onChange={e => setAddrField('state', e.target.value)} />
+                </div>
+                <div>
+                  <label style={lbl}>Pincode *</label>
+                  <input className="input" value={addrForm.pincode} maxLength={6}
+                    onChange={e => setAddrField('pincode', e.target.value)} />
+                </div>
+                <div>
+                  <label style={lbl}>Label</label>
+                  <input className="input" value={addrForm.label}
+                    onChange={e => setAddrField('label', e.target.value)} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary btn-sm" onClick={saveQuickAddress} disabled={addrSaving}>
+                  {addrSaving ? <Spinner size="sm" /> : 'Save Address'}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setShowAddAddr(false); setAddrErr('') }}>
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
 
@@ -469,6 +566,7 @@ export default function BookingModal({
               className="btn btn-primary"
               onClick={() => setStep('book')}
               disabled={addresses.length === 0}
+              title={addresses.length === 0 ? 'Add an address above first' : undefined}
               style={{ flex: 1 }}
             >
               {activeBkgCount > 0
@@ -479,11 +577,6 @@ export default function BookingModal({
               ← Change Customer
             </button>
           </div>
-          {addresses.length === 0 && (
-            <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
-              Add an address for this customer first, then come back to book.
-            </div>
-          )}
         </div>
       )}
 
@@ -728,11 +821,29 @@ export default function BookingModal({
 
           {/* Duplicate rule reminder */}
           <div style={{ background: '#EFF6FF', borderRadius: 6, padding: '7px 12px', fontSize: 12, color: '#1D4ED8', marginBottom: 14 }}>
-            ℹ <b>Duplicate rule:</b> Same customer + same service + same address + active booking = blocked.
-            Different service or different address = allowed as a separate booking.
+            ℹ <b>Duplicate rule:</b> Same customer + same <b>service category</b> + same address + active booking = blocked.
+            Different category (e.g. AC vs Washing Machine) or different address = allowed. Admins can override with "Force create".
           </div>
 
           <Err msg={err} />
+
+          {showForceOption && (
+            <div style={{ background: '#FFF7ED', border: '1px solid #FDBA74', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <input
+                type="checkbox"
+                id="force-dup"
+                checked={forceDuplicate}
+                onChange={e => setForceDuplicate(e.target.checked)}
+                style={{ marginTop: 3, cursor: 'pointer', accentColor: '#EA580C' }}
+              />
+              <label htmlFor="force-dup" style={{ fontSize: 13, color: '#92400E', cursor: 'pointer', lineHeight: 1.4 }}>
+                <b>Force create</b> — Override the duplicate block and create this booking anyway.
+                <span style={{ display: 'block', fontSize: 11, color: '#B45309', marginTop: 2 }}>
+                  Use only when you are certain the duplicate is intentional (e.g. second technician, split job).
+                </span>
+              </label>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn btn-primary" onClick={handleCreate} disabled={saving}>
