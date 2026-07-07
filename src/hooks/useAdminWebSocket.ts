@@ -27,6 +27,7 @@
 
 import { useEffect, useCallback, useState } from 'react'
 import { useAuthStore } from '@/store/authStore'
+import { getWsBase } from '@/utils/wsBase'
 
 export type WSStatus = 'connecting' | 'connected' | 'disconnected'
 export type WSHandler = (payload: any, event: WSMessage) => void
@@ -47,34 +48,8 @@ let _pingTimer: ReturnType<typeof setInterval> | null = null
 let _backoff = 1000      // ms, doubles on each failed attempt
 let _intentionalClose = false
 
-/**
- * Build the WebSocket base URL from VITE_API_URL.
- *
- * VITE_API_URL is the HTTP REST base, e.g.:
- *   "http://localhost:8000/api/v1"   (dev)
- *   "https://api.bibekenterprises.com/api/v1"  (prod)
- *
- * We need ONLY the origin (scheme + host + port) with the protocol
- * switched to ws:// or wss://, because the WS endpoints live at
- * /ws/… (not /api/v1/ws/…).
- */
-function _getWsBase(): string {
-  const apiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined
-    ?? 'http://localhost:8000/api/v1'
-
-  try {
-    const parsed = new URL(apiUrl)
-    // Use only origin (protocol + hostname + port), switch http→ws
-    const wsProtocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${wsProtocol}//${parsed.host}`
-  } catch {
-    // Fallback: naive replace on the scheme only, strip any path
-    return apiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws').replace(/\/api\/v1.*$/, '')
-  }
-}
-
 function _getWsUrl(token: string): string {
-  return `${_getWsBase()}/ws/admin/assignments?token=${token}`
+  return `${getWsBase()}/ws/admin/assignments?token=${token}`
 }
 
 function _notifyStatus(s: WSStatus) {
@@ -217,7 +192,7 @@ export function useBookingWebSocket(bookingId: string | null) {
     if (!bookingId || !token) return
 
     // Use the same origin-only base (strips /api/v1) — same fix as admin hook
-    const url = `${_getWsBase()}/ws/booking/${bookingId}?token=${token}`
+    const url = `${getWsBase()}/ws/booking/${bookingId}?token=${token}`
     console.debug('[WS:booking] Connecting to', url)
 
     let backoff = 1000
