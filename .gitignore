@@ -11,3 +11,6 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
+# Firebase service-account credentials — never commit these
+*firebase-adminsdk*.json
+*serviceAccountKey*.json

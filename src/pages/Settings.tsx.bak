@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { settingsAPI } from '@/services/api'
 import PageHeader from '@/components/layout/PageHeader'
 import Spinner from '@/components/ui/Spinner'
@@ -6,12 +6,12 @@ import CloudinaryImageUploader from '@/components/ui/CloudinaryImageUploader'
 import { usePlatformStore } from '@/store/platformStore'
 
 // ── Types ─────────────────────────────────────────────────────
-type TabKey = 'Platform' | 'General' | 'Payment' | 'Notification' | 'Security' | 'MPIN' | 'Cloudinary' | 'Maps' | 'Dispatch' | 'Firebase'
+type TabKey = 'Platform' | 'General' | 'Payment' | 'Notification' | 'Security' | 'Cloudinary' | 'Maps' | 'Dispatch' | 'Firebase'
 
 interface FieldDef {
   key: string
   label: string
-  type: 'text' | 'email' | 'password' | 'number' | 'textarea' | 'url' | 'toggle'
+  type: 'text' | 'email' | 'password' | 'number' | 'textarea' | 'url'
   placeholder?: string
   hint?: string
 }
@@ -68,19 +68,18 @@ const FIELDS: Record<TabKey, FieldDef[]> = {
     { key: 'assignment_radius_km',   label: 'Assignment Radius (km)',   type: 'number',   placeholder: '20',        hint: 'Maximum travel distance to consider a technician for auto-assignment.' },
   ],
   Dispatch: [
-    { key: 'auto_assign_enabled', label: 'Auto-assign Enabled', type: 'toggle', hint: 'When ON, bookings created by Admin, CCO, or Customer are automatically assigned to the best available technician.' },
+    { key: 'auto_assign_enabled',       label: 'Auto-assign Enabled',           type: 'text',   placeholder: 'true',  hint: 'Set to false to disable automatic assignment — all bookings will stay PENDING until manually assigned.' },
     { key: 'response_timeout_minutes',  label: 'Response Timeout (minutes)',    type: 'number', placeholder: '5',     hint: 'Time a technician has to accept/reject before the booking is re-queued.' },
     { key: 'max_reject_before_penalty', label: 'Max Rejects Before Penalty',    type: 'number', placeholder: '3',     hint: "Number of consecutive rejections before a technician's score is penalised." },
     { key: 'max_active_bookings',       label: 'Max Active Bookings per Tech',  type: 'number', placeholder: '5',     hint: 'Technicians with this many active jobs will be excluded from auto-assignment.' },
     { key: 'fcm_server_key',            label: 'FCM Server Key (Legacy HTTP)',  type: 'password', placeholder: 'AAAAx...',  hint: 'Legacy FCM HTTP v1 key. Use the Firebase tab for Admin SDK push notifications instead.' },
   ],
   Firebase: [],  // rendered separately — special JSON paste widget
-  MPIN: [],      // rendered separately — custom toggle + PIN-pad widget
 }
 
 const TAB_ICONS: Record<TabKey, string> = {
   Platform: '🏢', General: '⚙️', Payment: '💳', Notification: '🔔', Security: '🔒', Cloudinary: '☁️',
-  Maps: '🗺️', Dispatch: '🚀', Firebase: '🔥', MPIN: '🔐',
+  Maps: '🗺️', Dispatch: '🚀', Firebase: '🔥',
 }
 
 const TAB_API: Record<TabKey, { get: () => Promise<any>; put: (d: any) => Promise<any> }> = {
@@ -93,10 +92,9 @@ const TAB_API: Record<TabKey, { get: () => Promise<any>; put: (d: any) => Promis
   Maps:         { get: () => settingsAPI.maps(),         put: (d) => settingsAPI.updateMaps(d) },
   Dispatch:     { get: () => settingsAPI.dispatch(),     put: (d) => settingsAPI.updateDispatch(d) },
   Firebase:     { get: () => settingsAPI.firebase(),     put: (d) => settingsAPI.updateFirebase(d) },
-  MPIN:         { get: () => Promise.resolve({ data: { data: {} } }), put: () => Promise.resolve() },
 }
 
-const TABS: TabKey[] = ['Platform', 'General', 'Payment', 'Notification', 'Security', 'MPIN', 'Cloudinary', 'Maps', 'Dispatch', 'Firebase']
+const TABS: TabKey[] = ['Platform', 'General', 'Payment', 'Notification', 'Security', 'Cloudinary', 'Maps', 'Dispatch', 'Firebase']
 
 // ── Reusable field renderer ───────────────────────────────────
 function SettingField({ def, value, onChange }: {
@@ -121,35 +119,7 @@ function SettingField({ def, value, onChange }: {
         {def.label}
       </label>
       <div style={{ position: 'relative' }}>
-        {def.type === 'toggle' ? (
-          <div
-            onClick={() => onChange(value === 'true' ? 'false' : 'true')}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 10,
-              cursor: 'pointer', userSelect: 'none',
-            }}
-          >
-            <div style={{
-              width: 48, height: 26, borderRadius: 13, position: 'relative',
-              background: value === 'true' ? '#1B4FD8' : '#CBD5E1',
-              transition: 'background 0.2s',
-              flexShrink: 0,
-            }}>
-              <div style={{
-                position: 'absolute', top: 3, left: value === 'true' ? 25 : 3,
-                width: 20, height: 20, borderRadius: '50%', background: 'white',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-                transition: 'left 0.2s',
-              }} />
-            </div>
-            <span style={{
-              fontSize: 14, fontWeight: 600,
-              color: value === 'true' ? '#1B4FD8' : '#64748B',
-            }}>
-              {value === 'true' ? 'ON' : 'OFF'}
-            </span>
-          </div>
-        ) : def.type === 'textarea' ? (
+        {def.type === 'textarea' ? (
           <textarea
             rows={3}
             style={{ ...inputStyle, resize: 'vertical' }}
@@ -176,12 +146,7 @@ function SettingField({ def, value, onChange }: {
           </button>
         )}
       </div>
-      {isMasked && (
-        <p style={{ fontSize: 12, color: '#15803D', marginTop: 4, fontWeight: 600 }}>
-          ✅ Value is saved — leave blank to keep current, or type a new value to replace it.
-        </p>
-      )}
-      {!isMasked && def.hint && (
+      {def.hint && (
         <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>💡 {def.hint}</p>
       )}
     </div>
@@ -328,8 +293,7 @@ function FirebaseTab({ data, update }: { data: Record<string, string>; update: (
   const [jsonText, setJsonText] = useState('')
   const [jsonErr, setJsonErr]   = useState('')
 
-  // '***' means the value is saved but masked (is_secret=true). Treat it as connected.
-  const isConnected = !!(data.firebase_project_id && data.firebase_client_email && data.firebase_private_key)
+  const isConnected = !!(data.firebase_project_id && data.firebase_client_email && data.firebase_private_key && data.firebase_private_key !== '***')
 
   const applyJson = () => {
     setJsonErr('')
@@ -439,239 +403,8 @@ function FirebaseTab({ data, update }: { data: Record<string, string>; update: (
               value={data.firebase_private_key === '***' ? '' : (data.firebase_private_key || '')}
               onChange={e => update('firebase_private_key', e.target.value)}
             />
-            {data.firebase_private_key === '***'
-              ? <p style={{ fontSize: 12, color: '#15803D', marginTop: 4, fontWeight: 600 }}>✅ Private key is saved — leave blank to keep it, or paste a new PEM to replace.</p>
-              : <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>💡 Stored encrypted. Include the full PEM with BEGIN/END lines. Use "Paste JSON" mode for easier setup.</p>
-            }
+            <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>💡 Stored encrypted. Include the full PEM with BEGIN/END lines. Use "Paste JSON" mode for easier setup.</p>
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-
-// ── MpinTab — 6-digit MPIN auto-lock configuration ───────────────────────────
-function MpinTab() {
-  const [status, setStatus]     = useState<{ enabled: boolean; configured: boolean } | null>(null)
-  const [loading, setLoading]   = useState(true)
-  const [saving, setSaving]     = useState(false)
-  const [msg, setMsg]           = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-
-  // PIN entry (set / change)
-  const [pin, setPin]           = useState<string[]>(['','','','','',''])
-  const [confirm, setConfirm]   = useState<string[]>(['','','','','',''])
-  const pinRefs    = useRef<(HTMLInputElement | null)[]>([])
-  const confirmRefs = useRef<(HTMLInputElement | null)[]>([])
-
-  const flash = (type: 'ok' | 'err', text: string) => {
-    setMsg({ type, text })
-    setTimeout(() => setMsg(null), 4000)
-  }
-
-  // Load current status
-  const reload = useCallback(async () => {
-    setLoading(true)
-    try {
-      const r = await settingsAPI.mpinStatus()
-      const { enabled, configured } = r.data?.data || {}
-      setStatus({ enabled: !!enabled, configured: !!configured })
-    } catch { flash('err', 'Failed to load MPIN status') }
-    finally { setLoading(false) }
-  }, [])
-
-  useEffect(() => { reload() }, [reload])
-
-  // PIN digit input helpers
-  const handlePinChange = (
-    arr: string[], setArr: (v: string[]) => void,
-    refs: React.MutableRefObject<(HTMLInputElement | null)[]>,
-    i: number, val: string
-  ) => {
-    const v = val.replace(/\D/g, '').slice(-1)
-    const next = [...arr]; next[i] = v; setArr(next)
-    if (v && i < 5) refs.current[i + 1]?.focus()
-  }
-
-  const handlePinKeyDown = (
-    arr: string[],
-    refs: React.MutableRefObject<(HTMLInputElement | null)[]>,
-    i: number, e: React.KeyboardEvent<HTMLInputElement>
-  ) => {
-    if (e.key === 'Backspace' && !arr[i] && i > 0) refs.current[i - 1]?.focus()
-  }
-
-  const pinValue    = pin.join('')
-  const confirmValue = confirm.join('')
-  const canSave     = pinValue.length === 6 && confirmValue.length === 6
-
-  const handleSavePin = async () => {
-    if (pinValue !== confirmValue) { flash('err', 'PINs do not match'); return }
-    if (!/^\d{6}$/.test(pinValue))  { flash('err', 'MPIN must be exactly 6 digits'); return }
-    setSaving(true)
-    try {
-      await settingsAPI.mpinSet(pinValue)
-      flash('ok', 'MPIN saved successfully')
-      setPin(['','','','','','']); setConfirm(['','','','','',''])
-      reload()
-    } catch (e: any) {
-      flash('err', e?.response?.data?.detail || 'Failed to save MPIN')
-    } finally { setSaving(false) }
-  }
-
-  const handleToggle = async (enable: boolean) => {
-    if (enable && !status?.configured) {
-      flash('err', 'Set an MPIN first, then enable auto-lock'); return
-    }
-    setSaving(true)
-    try {
-      await settingsAPI.mpinEnable(enable)
-      flash('ok', enable ? 'MPIN auto-lock enabled' : 'MPIN auto-lock disabled')
-      reload()
-    } catch (e: any) {
-      flash('err', e?.response?.data?.detail || 'Failed to update MPIN status')
-    } finally { setSaving(false) }
-  }
-
-  const pinBoxStyle = (filled: boolean, error: boolean): React.CSSProperties => ({
-    width: 44, height: 52, textAlign: 'center', fontSize: 22, fontWeight: 700,
-    borderRadius: 10, border: `1.5px solid ${error ? '#FCA5A5' : filled ? '#1B4FD8' : '#E2E8F0'}`,
-    outline: 'none', color: '#0F172A', transition: 'border-color 0.15s',
-  })
-
-  if (loading) return <div style={{ color: '#94A3B8', fontSize: 14 }}>Loading MPIN status…</div>
-
-  const mismatch = confirmValue.length === 6 && pinValue !== confirmValue
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-
-      {/* Status banner */}
-      <div style={{ background: status?.enabled ? '#EFF6FF' : '#F8FAFC',
-        border: `1px solid ${status?.enabled ? '#BFDBFE' : '#E2E8F0'}`,
-        borderRadius: 10, padding: '14px 18px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 15, color: '#0F172A', marginBottom: 3 }}>
-            {status?.enabled ? '🔐 MPIN Auto-Lock: ON' : '🔓 MPIN Auto-Lock: OFF'}
-          </div>
-          <div style={{ fontSize: 13, color: '#64748B' }}>
-            {status?.enabled
-              ? 'Dashboard locks after 10 minutes of inactivity. Enter MPIN to unlock.'
-              : 'Enable to lock the dashboard after 10 minutes of inactivity.'}
-            {!status?.configured && ' No MPIN set yet — configure one below first.'}
-          </div>
-        </div>
-        <button
-          disabled={saving}
-          onClick={() => handleToggle(!status?.enabled)}
-          style={{
-            minWidth: 96, padding: '8px 18px', borderRadius: 8, fontWeight: 700,
-            fontSize: 13, border: 'none', cursor: saving ? 'not-allowed' : 'pointer',
-            background: status?.enabled ? '#FEE2E2' : '#1B4FD8',
-            color: status?.enabled ? '#991B1B' : 'white',
-            opacity: saving ? 0.7 : 1, transition: 'all 0.15s',
-          }}
-        >
-          {saving ? '…' : status?.enabled ? 'Disable' : 'Enable'}
-        </button>
-      </div>
-
-      {/* Set / change MPIN */}
-      <div style={{ background: '#FAFAFA', border: '1px solid #E2E8F0', borderRadius: 10, padding: '20px 24px' }}>
-        <h4 style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', margin: '0 0 4px' }}>
-          {status?.configured ? 'Change MPIN' : 'Set MPIN'}
-        </h4>
-        <p style={{ fontSize: 13, color: '#64748B', margin: '0 0 18px' }}>
-          {status?.configured
-            ? 'Enter a new 6-digit PIN to replace the current one.'
-            : 'Choose a 6-digit PIN. You must set this before enabling auto-lock.'}
-        </p>
-
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 8 }}>
-            New MPIN
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {pin.map((d, i) => (
-              <input
-                key={i}
-                ref={el => { pinRefs.current[i] = el }}
-                value={d}
-                type="password"
-                inputMode="numeric"
-                maxLength={1}
-                onChange={e => handlePinChange(pin, setPin, pinRefs, i, e.target.value)}
-                onKeyDown={e => handlePinKeyDown(pin, pinRefs, i, e)}
-                style={pinBoxStyle(!!d, false)}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 8 }}>
-            Confirm MPIN
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {confirm.map((d, i) => (
-              <input
-                key={i}
-                ref={el => { confirmRefs.current[i] = el }}
-                value={d}
-                type="password"
-                inputMode="numeric"
-                maxLength={1}
-                onChange={e => handlePinChange(confirm, setConfirm, confirmRefs, i, e.target.value)}
-                onKeyDown={e => handlePinKeyDown(confirm, confirmRefs, i, e)}
-                style={pinBoxStyle(!!d, mismatch)}
-              />
-            ))}
-          </div>
-          {mismatch && (
-            <p style={{ fontSize: 12, color: '#DC2626', marginTop: 6, fontWeight: 600 }}>
-              ⚠️ PINs do not match
-            </p>
-          )}
-        </div>
-
-        <button
-          disabled={!canSave || saving || mismatch}
-          onClick={handleSavePin}
-          style={{
-            background: canSave && !mismatch ? '#1B4FD8' : '#94A3B8',
-            color: 'white', border: 'none', borderRadius: 8,
-            padding: '10px 24px', fontSize: 14, fontWeight: 600,
-            cursor: canSave && !mismatch && !saving ? 'pointer' : 'not-allowed',
-            transition: 'background 0.15s',
-          }}
-        >
-          {saving ? 'Saving…' : status?.configured ? '🔄 Update MPIN' : '💾 Save MPIN'}
-        </button>
-      </div>
-
-      {/* Info box */}
-      <div style={{ background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: '14px 18px' }}>
-        <div style={{ fontSize: 13, color: '#0369A1', lineHeight: 1.7 }}>
-          <strong>ℹ️ How it works</strong><br />
-          • When enabled, the dashboard locks automatically after <strong>10 minutes</strong> of inactivity.<br />
-          • Inactivity = no mouse movement, keyboard input, clicks, or scrolling.<br />
-          • Locking does <em>not</em> log you out — enter your MPIN to resume instantly.<br />
-          • The session itself stays valid until <strong>11:59 PM</strong> each day.<br />
-          • You can always log out from the lock screen if needed.
-        </div>
-      </div>
-
-      {/* Flash message */}
-      {msg && (
-        <div style={{
-          background: msg.type === 'ok' ? '#F0FDF4' : '#FEF2F2',
-          border: `1px solid ${msg.type === 'ok' ? '#86EFAC' : '#FECACA'}`,
-          borderRadius: 8, padding: '10px 14px',
-          color: msg.type === 'ok' ? '#166534' : '#991B1B',
-          fontSize: 13, fontWeight: 600,
-        }}>
-          {msg.type === 'ok' ? '✅' : '⚠️'} {msg.text}
         </div>
       )}
     </div>
@@ -795,8 +528,6 @@ export default function Settings() {
 
             {tab === 'Platform'
               ? <PlatformTab data={data} update={update} cloudSettings={cloudSettings} />
-              : tab === 'MPIN'
-              ? <MpinTab />
               : tab === 'Firebase'
               ? <FirebaseTab data={data} update={update} />
               : FIELDS[tab].map(def => (
@@ -828,7 +559,7 @@ export default function Settings() {
               </div>
             )}
 
-            {tab !== 'MPIN' && <button
+            <button
               onClick={save}
               disabled={saving}
               style={{ display: 'flex', alignItems: 'center', gap: 8,
@@ -837,7 +568,7 @@ export default function Settings() {
                 fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer',
                 opacity: saving ? 0.7 : 1, transition: 'opacity 0.15s' }}>
               {saving ? <><Spinner size="sm" /> Saving…</> : `💾 Save ${tab} Settings`}
-            </button>}
+            </button>
           </div>
         </div>
       )}

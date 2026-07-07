@@ -36,6 +36,7 @@ const NAV_GROUPS = [
       { path: '/attendance',  icon: '🗓️', label: 'Attendance' },
       { path: '/commissions', icon: '💰', label: 'Commissions' },
       { path: '/wallet',      icon: '👛', label: 'Wallet' },
+      { path: '/settlements', icon: '🏦', label: 'Settlements' },
     ]
   },
   {
@@ -50,7 +51,7 @@ const NAV_GROUPS = [
   {
     group: 'System',
     items: [
-      { path: '/users',         icon: '👤', label: 'Admin Users' },
+      { path: '/users',         icon: '👥', label: 'Staff & CCO Mgmt' },
       { path: '/callback-requests', icon: '📞', label: 'Callback Requests' },
       { path: '/notifications', icon: '🔔', label: 'Notifications' },
       { path: '/reports',       icon: '📊', label: 'Reports' },

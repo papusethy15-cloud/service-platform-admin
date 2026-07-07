@@ -71,6 +71,12 @@ export const bookingsAPI = {
                           api.post(`/bookings/${id}/close`, {}, { params: { commission_pct: commission_pct || 20, notes } }),
   approveQuotation:     (id: string, quotation_id?: string) =>
                           api.post(`/bookings/${id}/approve-quotation`, {}, { params: quotation_id ? { quotation_id } : {} }),
+  confirmCancellation:  (id: string, reason?: string) =>
+                          api.post(`/bookings/${id}/confirm-cancellation`, { reason: reason || 'Confirmed by admin' }),
+  rejectCancellation:   (id: string, reason?: string) =>
+                          api.post(`/bookings/${id}/reject-cancellation`, { reason: reason || 'Rejected by admin' }),
+  visitingCharge:       (id: string, amount: number, notes?: string) =>
+                          api.post(`/bookings/${id}/visiting-charge`, { amount, notes }),
 }
 
 // ── Customers ──────────────────────────────────────────────────
@@ -80,6 +86,7 @@ export const customersAPI = {
   create:        (d: any)              => api.post('/customers', d),
   update:        (id: string, d: any)  => api.put(`/customers/${id}`, d),
   deactivate:    (id: string)          => api.delete(`/customers/${id}`),
+  deletePermanent: (id: string)        => api.delete(`/customers/${id}/permanent`),
   bookings:      (id: string)          => api.get(`/customers/${id}/bookings`),
   history:       (id: string)          => api.get(`/customers/${id}/history`),
   payments:      (id: string)          => api.get(`/customers/${id}/payments`),
@@ -122,15 +129,22 @@ export const servicesAPI = {
   updateCategory: (id: string, d: any)  => api.put(`/services/categories/${id}`, d),
   deleteCategory: (id: string)          => api.delete(`/services/categories/${id}`),
   cityPrices:     (serviceId: string)   => api.get(`/services/${serviceId}/city-prices`),
+  // Tech-suggested pending services
+  pending:        ()                    => api.get('/services/pending'),
+  verifyService:  (quotationId: string, serviceItemId: string, d: any) =>
+                    api.post(`/quotations/${quotationId}/services/${serviceItemId}/verify`, d),
 }
 
 // ── Assignments ────────────────────────────────────────────────
 export const assignmentsAPI = {
-  auto:    (d: any)              => api.post('/assignments/auto', d),
-  manual:  (d: any)              => api.post('/assignments/manual', d),
-  history: (bookingId: string)   => api.get(`/assignments/history/${bookingId}`),
-  rules:   ()                    => api.get('/assignments/rules'),
-  updateRules: (d: any)          => api.put('/assignments/rules', d),
+  auto:        (d: any)              => api.post('/assignments/auto', d),
+  manual:      (d: any)              => api.post('/assignments/manual', d),
+  candidates:  (bookingId: string)   => api.get(`/assignments/candidates/${bookingId}`),
+  cancelAuto:  (bookingId: string)   => api.post(`/assignments/cancel-auto/${bookingId}`, {}),
+  history:     (params?: any)        => api.get('/assignments/history', { params }),
+  respond:     (assignmentId: string, response: string) => api.post(`/assignments/${assignmentId}/respond`, { response }),
+  rules:       ()                    => api.get('/assignments/rules'),
+  updateRules: (d: any)              => api.put('/assignments/rules', d),
 }
 
 // ── Quotations ─────────────────────────────────────────────────
@@ -180,8 +194,8 @@ export const paymentsAPI = {
   verify:       (d: any)       => api.post('/payments/verify', d),
   cash:         (d: any)       => api.post('/payments/cash', d),
   bankTransfer: (d: any)       => api.post('/payments/bank-transfer', d),
-  generateLink: (d: any)       => api.post('/payments/link', d),
-  generateQR:   (d: any)       => api.post('/payments/qr', d),
+  generateLink: (d: any)       => api.post('/payments/generate-link', d),
+  generateQR:   (d: any)       => api.post('/payments/generate-qr', d),
 }
 
 // ── Cash Collections ───────────────────────────────────────────
@@ -294,6 +308,11 @@ export const walletAPI = {
   credit:           (d: any)                        => api.post('/wallet/credit', d),
   debit:            (d: any)                        => api.post('/wallet/debit', d),
   withdraw:         (d: any)                        => api.post('/wallet/withdraw', d),
+  // Withdrawal requests (admin)
+  withdrawalRequests: (params?: any)               => api.get('/wallet/withdrawal-requests', { params }),
+  reviewWithdrawal: (id: string, d: any)           => api.post(`/wallet/withdrawal-requests/${id}/review`, d),
+  // Settlements list
+  settlements:      (params?: any)                 => api.get('/wallet/settlements', { params }),
 }
 
 // ── CRM ────────────────────────────────────────────────────────
@@ -499,7 +518,9 @@ export const usersAPI = {
   roles:           ()                    => api.get('/users/roles'),
   permissions:     ()                    => api.get('/users/permissions'),
   rolePermissions: (roleId: string)      => api.get(`/users/roles/${roleId}/permissions`),
-  assignRole:      (userId: string, d: any) => api.post(`/users/${userId}/role`, d),
+  assignRole:            (userId: string, d: any)              => api.post(`/users/${userId}/role`, d),
+  updatePermissions:     (userId: string, overrides: {permission_code:string;is_granted:boolean}[]) => api.put(`/users/${userId}/permissions`, { overrides }),
+  getUserPermissions:    (userId: string)                       => api.get(`/users/${userId}/permissions`),
 }
 
 // ── System Settings ────────────────────────────────────────────
@@ -520,4 +541,14 @@ export const settingsAPI = {
   updatePlatform:     (d: any)  => api.put('/settings/platform', d),
   platformPublic:     ()        => api.get('/settings/platform/public'),
   profileComplete:    ()        => api.get('/settings/profile-complete'),
+  maps:               ()        => api.get('/settings/maps'),
+  updateMaps:         (d: any)  => api.put('/settings/maps', d),
+  dispatch:           ()        => api.get('/settings/dispatch'),
+  updateDispatch:     (d: any)  => api.put('/settings/dispatch', d),
+  firebase:           ()        => api.get('/settings/firebase'),
+  updateFirebase:     (d: any)  => api.put('/settings/firebase', d),
+  mpinStatus:         ()        => api.get('/settings/mpin/status'),
+  mpinSet:            (mpin: string)      => api.post('/settings/mpin/set', { mpin }),
+  mpinEnable:         (enabled: boolean)  => api.post('/settings/mpin/enable', { enabled }),
+  mpinVerify:         (mpin: string)      => api.post('/settings/mpin/verify', { mpin }),
 }

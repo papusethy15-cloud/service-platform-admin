@@ -13,7 +13,15 @@ export default function Services() {
   const [cities, setCities]         = useState<any[]>([])
   const [loading, setLoading]       = useState(true)
   const [catFilter, setCatFilter]   = useState('')
-  const [tab, setTab]               = useState<'services'|'categories'>('services')
+  const [tab, setTab]               = useState<'services'|'categories'|'pending'>('services')
+
+  // Pending services (tech-suggested)
+  const [pendingSvcs, setPendingSvcs]       = useState<any[]>([])
+  const [pendingLoading, setPendingLoading] = useState(false)
+  const [verifyModal, setVerifyModal]       = useState<any>(null)
+  const [verifyForm, setVerifyForm]         = useState({ name: '', category_id: '', base_price: 0, gst_percent: 18, duration_mins: 60, is_visible: true, commission_type: 'PERCENTAGE', commission_value: 10, domain_id: '' })
+  const [verifySaving, setVerifySaving]     = useState(false)
+  const [verifyErr, setVerifyErr]           = useState('')
 
   // Service modal
   const [svcModal, setSvcModal]     = useState<any>(null)
@@ -51,6 +59,48 @@ export default function Services() {
   }
 
   useEffect(() => { fetchAll() }, [catFilter])
+
+  const fetchPending = async () => {
+    setPendingLoading(true)
+    try {
+      const r = await servicesAPI.pending()
+      setPendingSvcs(r.data.data?.items || [])
+    } catch { setPendingSvcs([]) } finally { setPendingLoading(false) }
+  }
+
+  useEffect(() => { if (tab === 'pending') fetchPending() }, [tab])
+
+  const openVerifyModal = (p: any) => {
+    setVerifyModal(p)
+    setVerifyForm({
+      name: p.name,
+      category_id: '',
+      base_price: p.base_price || p.unit_price || 0,
+      gst_percent: p.gst_percent || 18,
+      duration_mins: p.duration_mins || 60,
+      is_visible: true,
+      commission_type: 'PERCENTAGE',
+      commission_value: 10,
+      domain_id: '',
+    })
+    setVerifyErr('')
+  }
+
+  const saveVerify = async (e: any) => {
+    e.preventDefault(); setVerifySaving(true); setVerifyErr('')
+    try {
+      if (!verifyModal?.quotation_id || !verifyModal?.quotation_item_id) throw new Error('Missing quotation context')
+      await servicesAPI.verifyService(verifyModal.quotation_id, verifyModal.quotation_item_id, {
+        ...verifyForm,
+        commission_value: Number(verifyForm.commission_value),
+        base_price: Number(verifyForm.base_price),
+        gst_percent: Number(verifyForm.gst_percent),
+        duration_mins: Number(verifyForm.duration_mins),
+        domain_id: verifyForm.domain_id || undefined,
+      })
+      setVerifyModal(null); fetchPending()
+    } catch (ex: any) { setVerifyErr(ex.response?.data?.detail || ex.message || 'Failed') } finally { setVerifySaving(false) }
+  }
 
   const openSvcModal = (s?: any) => {
     if (s) {
@@ -120,9 +170,15 @@ export default function Services() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-secondary" style={tabBtn('categories')} onClick={() => setTab('categories')}>Categories</button>
             <button className="btn btn-secondary" style={tabBtn('services')} onClick={() => setTab('services')}>Services</button>
-            <button className="btn btn-primary" onClick={() => tab === 'categories' ? openCatModal() : openSvcModal()}>
-              {tab === 'categories' ? '+ Category' : '+ Service'}
+            <button className="btn btn-secondary" style={{ ...tabBtn('pending'), position: 'relative' }} onClick={() => setTab('pending')}>
+              Pending Verify
+              {pendingSvcs.length > 0 && <span style={{ position: 'absolute', top: -6, right: -6, background: '#EF4444', color: '#fff', borderRadius: '50%', width: 18, height: 18, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{pendingSvcs.length}</span>}
             </button>
+            {tab !== 'pending' && (
+              <button className="btn btn-primary" onClick={() => tab === 'categories' ? openCatModal() : openSvcModal()}>
+                {tab === 'categories' ? '+ Category' : '+ Service'}
+              </button>
+            )}
           </div>
         } />
       <div style={{ height: 16 }} />
@@ -201,7 +257,126 @@ export default function Services() {
               </table>
             </div>
           ))}
+          {/* PENDING SERVICES TAB */}
+          {tab === 'pending' && (
+            <div>
+              {pendingLoading ? <div style={{ padding: 40, textAlign: 'center' }}><Spinner /></div> : (
+                pendingSvcs.length === 0
+                  ? <div className="card" style={{ padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 14 }}>
+                      ✅ No pending services — all tech-suggested services have been reviewed.
+                    </div>
+                  : <div className="card">
+                      <div style={{ padding: '12px 20px', borderBottom: '1px solid #F1F5F9', fontWeight: 700, fontSize: 15 }}>
+                        🕐 Pending Admin Verification ({pendingSvcs.length})
+                      </div>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Service Name</th>
+                            <th>Suggested By</th>
+                            <th>Price (₹)</th>
+                            <th>Appliance</th>
+                            <th>Booking</th>
+                            <th>Suggested At</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pendingSvcs.map((p: any) => (
+                            <tr key={p.service_id}>
+                              <td>
+                                <div style={{ fontWeight: 600 }}>{p.name}</div>
+                                {p.description && <div style={{ fontSize: 11, color: '#94A3B8' }}>{p.description.substring(0, 60)}</div>}
+                              </td>
+                              <td style={{ fontSize: 13 }}>{p.suggested_by_tech_name || '—'}</td>
+                              <td style={{ fontWeight: 700, color: '#059669' }}>₹{Number(p.unit_price || p.base_price).toLocaleString('en-IN')}</td>
+                              <td style={{ fontSize: 12, color: '#64748B' }}>{p.appliance_label || '—'}</td>
+                              <td>
+                                {p.booking_id
+                                  ? <a href={`/bookings/${p.booking_id}`} style={{ fontSize: 12, color: '#1B4FD8' }}>View Booking</a>
+                                  : '—'}
+                              </td>
+                              <td style={{ fontSize: 12, color: '#94A3B8' }}>
+                                {p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '—'}
+                              </td>
+                              <td>
+                                <button
+                                  className="btn btn-primary btn-sm"
+                                  onClick={() => openVerifyModal(p)}
+                                  style={{ background: '#059669' }}
+                                >
+                                  ✓ Verify
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+              )}
+            </div>
+          )}
         </>
+      )}
+
+      {/* Verify custom service modal */}
+      {verifyModal && (
+        <Modal title={`Verify Service: ${verifyModal.name}`} onClose={() => setVerifyModal(null)}>
+          <p style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>
+            Suggested by <strong>{verifyModal.suggested_by_tech_name || 'technician'}</strong> for appliance <strong>{verifyModal.appliance_label || '—'}</strong>.
+            Promote this to a real catalogue service and set commission below.
+          </p>
+          <form onSubmit={saveVerify}>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Category *</label>
+              <select className="input" value={verifyForm.category_id} onChange={e => setVerifyForm(f => ({ ...f, category_id: e.target.value }))} required>
+                <option value="">Select category</option>
+                {categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Service Name *</label>
+              <input className="input" value={verifyForm.name} onChange={e => setVerifyForm(f => ({ ...f, name: e.target.value }))} required />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+              {[['Base Price (₹) *', 'base_price'], ['GST %', 'gst_percent'], ['Duration (min)', 'duration_mins']].map(([l, k]) => (
+                <div key={k}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{l}</label>
+                  <input className="input" type="number" min="0" value={(verifyForm as any)[k]} onChange={e => setVerifyForm(f => ({ ...f, [k]: +e.target.value }))} />
+                </div>
+              ))}
+            </div>
+            <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 8 }}>💰 Technician Commission</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Commission Type</label>
+                  <select className="input" value={verifyForm.commission_type} onChange={e => setVerifyForm(f => ({ ...f, commission_type: e.target.value }))}>
+                    <option value="PERCENTAGE">Percentage (%)</option>
+                    <option value="FIXED">Fixed Amount (₹)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Value</label>
+                  <input className="input" type="number" min="0" value={verifyForm.commission_value} onChange={e => setVerifyForm(f => ({ ...f, commission_value: +e.target.value }))} />
+                </div>
+              </div>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                <input type="checkbox" checked={verifyForm.is_visible} onChange={e => setVerifyForm(f => ({ ...f, is_visible: e.target.checked }))} />
+                Visible to customers
+              </label>
+            </div>
+            {verifyErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 12 }}>{verifyErr}</div>}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-primary" type="submit" disabled={verifySaving} style={{ background: '#059669' }}>
+                {verifySaving ? <Spinner size="sm" /> : '✓ Approve & Add to Catalogue'}
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={() => setVerifyModal(null)}>Cancel</button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* Service modal */}

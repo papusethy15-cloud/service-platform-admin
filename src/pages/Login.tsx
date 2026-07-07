@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { authAPI } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
@@ -9,11 +9,22 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [sessionExpired, setSessionExpired] = useState(false)
   const { login } = useAuthStore()
+
+  // Check if redirected here due to idle timeout
+  useEffect(() => {
+    const expired = localStorage.getItem('admin_session_expired')
+    if (expired === '1') {
+      setSessionExpired(true)
+      localStorage.removeItem('admin_session_expired')
+    }
+  }, [])
   const navigate = useNavigate()
 
   const handleLogin = async (e: any) => {
     e.preventDefault(); setLoading(true); setError('')
+    setSessionExpired(false)
     try {
       const res = await authAPI.login(email, password)
       login(res.data.data.access_token, res.data.data)
@@ -55,6 +66,12 @@ export default function Login() {
               onBlur={e=>(e.target.style.border='1.5px solid #E2E8F0')}
             />
           </div>
+          {sessionExpired && (
+            <div style={{ background:'#FEF3C7', color:'#92400E', padding:'12px 14px', borderRadius:10, fontSize:13, marginBottom:16, display:'flex', alignItems:'center', gap:8, border:'1px solid #FDE68A' }}>
+              <span style={{ fontSize:16 }}>⏱</span>
+              <span><strong>Session expired</strong> — you were inactive for 5 minutes. Please log in again.</span>
+            </div>
+          )}
           {error && <div style={{ background:'#FEE2E2', color:'#DC2626', padding:'10px 14px', borderRadius:10, fontSize:13, marginBottom:16 }}>{error}</div>}
           <button
             type="submit" disabled={loading}

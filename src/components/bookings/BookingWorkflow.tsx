@@ -10,6 +10,8 @@
  */
 
 import { useEffect, useState, useCallback } from 'react'
+import { useBookingWebSocket } from '@/hooks/useAdminWebSocket'
+import { useAuthStore } from '@/store/authStore'
 import Modal from '@/components/ui/Modal'
 import Spinner from '@/components/ui/Spinner'
 import {
@@ -18,6 +20,23 @@ import {
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const money = (n: number) => `₹${(n || 0).toLocaleString('en-IN')}`
+
+/** Extract a human-readable error message from an Axios error.
+ *  Handles both FastAPI HTTPException (detail: string)
+ *  and Pydantic 422 validation errors (detail: array of {loc, msg, type}). */
+const extractApiError = (ex: any, fallback = 'Request failed'): string => {
+  const d = ex?.response?.data?.detail
+  if (!d) return fallback
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) {
+    // Pydantic 422: [{loc: [...], msg: '...', type: '...'}]
+    return d.map((e: any) => {
+      const field = Array.isArray(e.loc) ? e.loc.join(' → ') : String(e.loc || '')
+      return field ? `${field}: ${e.msg}` : e.msg
+    }).join('; ')
+  }
+  return fallback
+}
 const fmtDT = (d: string) => d
   ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   : '—'
@@ -36,25 +55,27 @@ const OK = ({ msg }: { msg: string }) =>
 // Booking status ordering for the stepper
 const STATUS_ORDER = [
   'PENDING', 'CONFIRMED', 'ASSIGNED', 'ACCEPTED', 'EN_ROUTE', 'ARRIVED',
-  'INSPECTING', 'IN_PROGRESS', 'COMPLETED', 'INVOICE_GENERATED', 'PAYMENT_PENDING', 'PAID', 'CLOSED',
+  'INSPECTING', 'QUOTATION_APPROVED', 'IN_PROGRESS', 'COMPLETED', 'INVOICE_GENERATED', 'PAYMENT_PENDING', 'PAID',
+  'PENDING_VERIFICATION', 'CLOSED',
 ]
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pending', CONFIRMED: 'Confirmed', ASSIGNED: 'Assigned',
   ACCEPTED: 'Accepted', EN_ROUTE: 'On the Way', ARRIVED: 'Arrived',
-  INSPECTING: 'Inspecting', IN_PROGRESS: 'Work in Progress',
+  INSPECTING: 'Inspecting', QUOTATION_APPROVED: 'Quotation Approved', IN_PROGRESS: 'Work in Progress', CANCELLATION_REQUESTED: 'Cancel Requested',
   COMPLETED: 'Work Done', INVOICE_GENERATED: 'Invoice Ready',
   PAYMENT_PENDING: 'Payment Pending', PAID: 'Fully Paid', CLOSED: 'Closed & Settled', SETTLED: 'Settled',
+  PENDING_VERIFICATION: 'Awaiting Admin Verification',
   CANCELLED: 'Cancelled', RESCHEDULED: 'Rescheduled',
 }
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING: '#F59E0B', CONFIRMED: '#3B82F6', ASSIGNED: '#8B5CF6',
   ACCEPTED: '#6366F1', EN_ROUTE: '#0EA5E9', ARRIVED: '#06B6D4',
-  INSPECTING: '#F97316', IN_PROGRESS: '#10B981',
+  INSPECTING: '#F97316', QUOTATION_APPROVED: '#059669', IN_PROGRESS: '#10B981', CANCELLATION_REQUESTED: '#F59E0B',
   COMPLETED: '#22C55E', INVOICE_GENERATED: '#7C3AED',
   PAYMENT_PENDING: '#EF4444', PAID: '#059669', CLOSED: '#374151',
-  CANCELLED: '#DC2626', RESCHEDULED: '#F59E0B',
+  CANCELLED: '#DC2626', RESCHEDULED: '#F59E0B', PENDING_VERIFICATION: '#7C3AED',
 }
 
 const PAYMENT_METHODS = [
@@ -146,6 +167,11 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
   const [settling,        setSettling]        = useState(false)
   const [settleErr,       setSettleErr]       = useState('')
 
+  // ── cancel booking form ──
+  const [showCancelForm, setShowCancelForm] = useState(false)
+  const [cancelReason,   setCancelReason]   = useState('')
+  const [cancelling,     setCancelling]     = useState(false)
+
   // ── load all data ──
   const load = useCallback(async () => {
     setLoading(true); setErr(''); setOk('')
@@ -208,6 +234,24 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
 
   useEffect(() => { load() }, [load])
 
+  // ── Real-time sync via WebSocket ──────────────────────────────────────────
+  // Subscribes to /ws/booking/{bookingId}. When the technician submits/edits
+  // a quotation, or any quotation status changes, we silently reload so the
+  // admin always sees the latest state without a manual refresh.
+  const currentUserId = useAuthStore(s => s.user?.id)
+  const { lastEvent: workflowWsEvent } = useBookingWebSocket(booking?.id || null)
+  useEffect(() => {
+    if (!workflowWsEvent) return
+    const isQuotationEvent  = ['QUOTATION_CREATED', 'QUOTATION_UPDATED', 'QUOTATION_DELETED'].includes(workflowWsEvent.type)
+    const isBookingEvent    = workflowWsEvent.type === 'BOOKING_STATUS_CHANGED'
+    const isInspection      = workflowWsEvent.type === 'INSPECTION_SUBMITTED'
+    if (!isQuotationEvent && !isBookingEvent && !isInspection) return
+    // Skip own actions — we already reload after every button click
+    const actorId = workflowWsEvent.payload?.actor_user_id
+    if (actorId && currentUserId && actorId === currentUserId) return
+    load()
+  }, [workflowWsEvent])
+
   // ── derived state ──
   const status    = booking?.status || 'PENDING'
   const statusIdx = STATUS_ORDER.indexOf(status)
@@ -222,22 +266,40 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
   const firstApproved       = approvedQuotations[0]                  // used for single-quotation flows
   const hasInvoice = invoices.length > 0
 
-  // Per-invoice paid amounts — payments carry invoice_id so we can split correctly
+  // ── Authoritative balance: use server balance_amount — not transaction sum ──────────────────
+  // Summing SUCCESS payments is unreliable if legacy duplicate records exist in DB.
+  // The backend's _apply_invoice_payment_state() is the single source of truth.
+  const balanceByInvoiceId: Record<string, number> = {}
+  invoices.forEach((inv: any) => {
+    const serverBalance = inv.balance_amount
+    balanceByInvoiceId[inv.id] = Math.max(
+      serverBalance !== undefined && serverBalance !== null
+        ? serverBalance
+        : (inv.total_amount || 0),
+      0
+    )
+  })
+
+  // Totals across ALL invoices
+  const totalInvoiced       = invoices.reduce((s: number, inv: any) => s + (inv.total_amount || 0), 0)
+  const totalOutstanding    = invoices.reduce((s: number, inv: any) => s + balanceByInvoiceId[inv.id], 0)
+  // Derived from invoiced - outstanding (avoids double-counting any legacy duplicate transactions)
+  const totalPaid           = Math.max(totalInvoiced - totalOutstanding, 0)
+
+  // Keep paidByInvoiceId for audit trail display only (not used for balance/button logic)
   const paidByInvoiceId: Record<string, number> = {}
   payments.filter((p: any) => p.status === 'SUCCESS').forEach((p: any) => {
     if (p.invoice_id) paidByInvoiceId[p.invoice_id] = (paidByInvoiceId[p.invoice_id] || 0) + (p.amount || 0)
   })
-  // Per-invoice balance
-  const balanceByInvoiceId: Record<string, number> = {}
-  invoices.forEach((inv: any) => {
-    const paid = paidByInvoiceId[inv.id] || 0
-    balanceByInvoiceId[inv.id] = Math.max((inv.total_amount || 0) - paid, 0)
-  })
 
-  // Totals across ALL invoices
-  const totalPaid           = Object.values(paidByInvoiceId).reduce((s, v) => s + v, 0)
-  const totalInvoiced       = invoices.reduce((s: number, inv: any) => s + (inv.total_amount || 0), 0)
-  const totalOutstanding    = invoices.reduce((s: number, inv: any) => s + balanceByInvoiceId[inv.id], 0)
+  // PAY_LATER scheduled amounts per invoice (PENDING, not yet collected)
+  const payLaterByInvoiceId: Record<string, { amount: number; due: string | null }> = {}
+  payments.filter((p: any) => (p.method === 'PAY_LATER' || p.reference_number === 'PAY_LATER') && p.status === 'PENDING').forEach((p: any) => {
+    if (p.invoice_id) payLaterByInvoiceId[p.invoice_id] = {
+      amount: (payLaterByInvoiceId[p.invoice_id]?.amount || 0) + (p.amount || 0),
+      due: p.due_collect_at || payLaterByInvoiceId[p.invoice_id]?.due || null,
+    }
+  })
 
   // For legacy single-invoice references (settle/close flow uses first unpaid invoice)
   const latestInvoice       = invoices[0]
@@ -258,7 +320,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
       setOk(`✅ ${label}`)
       await load(); onRefresh()
     } catch (ex: any) {
-      setErr(ex.response?.data?.detail || `Failed: ${label}`)
+      setErr(extractApiError(ex, `Failed: ${label}`))
     } finally { setActing(false) }
   }
 
@@ -334,7 +396,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
       setOk('✅ Invoice generated successfully')
       await load(); onRefresh()
     } catch (ex: any) {
-      setInvErr(ex.response?.data?.detail || 'Failed to create invoice')
+      setInvErr(extractApiError(ex, 'Failed to create invoice'))
     } finally { setInvSaving(false) }
   }
 
@@ -350,7 +412,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
       setRejectReason('')
       await load(); onRefresh()
     } catch (ex: any) {
-      setRejectErr(ex.response?.data?.detail || 'Rejection failed')
+      setRejectErr(extractApiError(ex, 'Rejection failed'))
     } finally { setRejecting(false) }
   }
 
@@ -366,17 +428,21 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
       try {
         // Record the actual outstanding balance amount so P&L tracking is accurate.
         // The reference_number = 'PAY_LATER' marks it as a future collection, NOT yet collected.
+        const dueDateTime = new Date(`${payDue}T23:59:00`).toISOString()
         await paymentsAPI.cash({
-          invoice_id:       payTargetInvoice.id,
-          amount:           invBalance,
-          notes:            `PAY_LATER: due ${payDue}. ${payNotes || ''}`.trim(),
-          reference_number: 'PAY_LATER',
+          invoice_id:            payTargetInvoice.id,
+          amount:                invBalance,
+          is_pay_later:          true,
+          due_collect_at:        dueDateTime,
+          notes:                 payNotes || undefined,
+          reference_number:      'PAY_LATER',
+          on_behalf_technician_id: booking?.technician_id || undefined,
         })
         setOk(`✅ Pay Later scheduled for ${fmtDate(payDue)} — ${money(invBalance)} outstanding`)
         setShowPayForm(false)
         await load(); onRefresh()
       } catch (ex: any) {
-        setPayErr(ex.response?.data?.detail || 'Payment failed')
+        setPayErr(extractApiError(ex, 'Payment failed'))
       } finally { setPaySaving(false) }
       return
     }
@@ -394,7 +460,15 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
 
     setPaySaving(true); setPayErr(''); setPayQR(''); setPayLink('')
     try {
-      const base = { invoice_id: payTargetInvoice.id, amount: amt, notes: payNotes || undefined }
+      const base = {
+        invoice_id: payTargetInvoice.id,
+        amount: amt,
+        notes: payNotes || undefined,
+        // Tell backend this cash was collected on-site by the assigned technician,
+        // not directly by admin — so a PENDING CashCollectionRecord is created
+        // and the tech must deposit it to admin (tracked in Cash Collections page).
+        on_behalf_technician_id: booking?.technician_id || undefined,
+      }
       if (payMethod === 'CASH') {
         await paymentsAPI.cash({ ...base, reference_number: payRef || undefined })
         setOk(`✅ Cash payment of ${money(amt)} recorded`)
@@ -415,7 +489,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
       }
       await load(); onRefresh()
     } catch (ex: any) {
-      setPayErr(ex.response?.data?.detail || 'Payment failed')
+      setPayErr(extractApiError(ex, 'Payment failed'))
     } finally { setPaySaving(false) }
   }
 
@@ -486,16 +560,18 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
               </div>
 
               {[
-                { key: 'ASSIGNED',          icon: '📋', label: 'Assigned to Technician' },
-                { key: 'ACCEPTED',          icon: '✅', label: 'Technician Accepted' },
-                { key: 'EN_ROUTE',          icon: '🚗', label: 'On the Way' },
-                { key: 'ARRIVED',           icon: '📍', label: 'Arrived at Customer' },
-                { key: 'INSPECTING',        icon: '🔍', label: 'Inspection Started' },
-                { key: 'IN_PROGRESS',       icon: '🔧', label: 'Work in Progress' },
-                { key: 'COMPLETED',         icon: '🏁', label: 'Work Completed' },
-                { key: 'INVOICE_GENERATED', icon: '📄', label: 'Invoice Generated' },
-                { key: 'PAID',              icon: '💰', label: 'Payment Collected' },
-                { key: 'CLOSED',            icon: '🔒', label: 'Settled & Closed' },
+                { key: 'ASSIGNED',           icon: '📋', label: 'Assigned to Technician' },
+                { key: 'ACCEPTED',           icon: '✅', label: 'Technician Accepted' },
+                { key: 'EN_ROUTE',           icon: '🚗', label: 'On the Way' },
+                { key: 'ARRIVED',            icon: '📍', label: 'Arrived at Customer' },
+                { key: 'INSPECTING',         icon: '🔍', label: 'Inspection Started' },
+                { key: 'QUOTATION_APPROVED', icon: '✅', label: 'Quotation Approved' },
+                { key: 'IN_PROGRESS',        icon: '🔧', label: 'Work in Progress' },
+                { key: 'COMPLETED',          icon: '🏁', label: 'Work Completed' },
+                { key: 'INVOICE_GENERATED',  icon: '📄', label: 'Invoice Generated' },
+                { key: 'PAID',               icon: '💰', label: 'Payment Collected' },
+                { key: 'PENDING_VERIFICATION', icon: '🔍', label: 'Awaiting Admin Verification' },
+                { key: 'CLOSED',             icon: '🔒', label: 'Settled & Closed' },
               ].map((step, i, arr) => {
                 const stepIdx = STATUS_ORDER.indexOf(step.key)
                 const isDone  = stepIdx < statusIdx || status === step.key || (step.key === 'PAID' && totalInvoiced > 0 && totalPaid >= totalInvoiced)
@@ -542,6 +618,58 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
+                {/* ── Rescheduled visit — show repair stage context & smart actions ── */}
+                {status === 'RESCHEDULED' && (() => {
+                  const preStatus = booking.pre_reschedule_status as string | undefined
+                  const isResumingWork    = preStatus === 'IN_PROGRESS'
+                  const isResumingInspect = preStatus === 'INSPECTING' || preStatus === 'ARRIVED'
+                  return (
+                    <div style={{ background:'#FEF3C7', border:'1px solid #FCD34D', borderRadius:10, padding:'12px 14px', marginBottom:4, display:'flex', flexDirection:'column', gap:8 }}>
+                      <div style={{ fontSize:13, fontWeight:800, color:'#92400E' }}>🔄 Rescheduled Visit</div>
+                      <div style={{ fontSize:12, color:'#92400E' }}>
+                        {isResumingWork
+                          ? '⚠️ Repair was IN PROGRESS — resume work directly after arrival. No re-inspection needed.'
+                          : isResumingInspect
+                            ? '⚠️ Inspection was underway — continue inspection after technician arrives.'
+                            : 'Booking rescheduled — proceed with normal visit workflow.'}
+                      </div>
+                      {preStatus && (
+                        <div style={{ fontSize:11, color:'#92400E' }}>
+                          Stage before reschedule: <b>{preStatus.replace(/_/g,' ')}</b>
+                        </div>
+                      )}
+                      {booking.scheduled_date && (
+                        <div style={{ fontSize:12, fontWeight:700, color:'#92400E' }}>
+                          📅 {booking.scheduled_date}{booking.scheduled_slot ? ` · ${booking.scheduled_slot.replace('-',' – ')}` : ''}
+                        </div>
+                      )}
+                      {isResumingWork && (
+                        <ActionBtn icon="🔧" label="Resume Work (Skip to In Progress)"
+                          color="#166534" bg="#DCFCE7" border="#86EFAC"
+                          hint="Repair was in progress — skip en-route/inspection and go straight to work"
+                          onClick={() => transition('startWork', '🔧 Resumed — work in progress')} loading={acting} disabled={noTechnician} />
+                      )}
+                      {isResumingInspect && (
+                        <ActionBtn icon="🔍" label="Continue Inspection"
+                          color="#92400E" bg="#FEF3C7" border="#FCD34D"
+                          hint="Inspection was underway — mark arrived and proceed"
+                          onClick={() => transition('arrived', 'Technician arrived (rescheduled)')} loading={acting} disabled={noTechnician} />
+                      )}
+                      {!isResumingWork && !isResumingInspect && (
+                        <ActionBtn icon="📍" label="Mark Arrived"
+                          color="#0E7490" bg="#CFFAFE" border="#67E8F9"
+                          hint="Technician reached customer — begin visit"
+                          onClick={() => transition('arrived', 'Technician arrived (rescheduled)')} loading={acting} disabled={noTechnician} />
+                      )}
+                      {quotations.length > 0 && (
+                        <div style={{ fontSize:11, color:'#92400E', background:'#FFFBEB', borderRadius:8, padding:'6px 10px', border:'1px solid #FDE68A' }}>
+                          📋 {quotations.length} quotation{quotations.length !== 1 ? 's' : ''} — see Quotations section below to edit / approve.
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+
                 {/* Accept (if ASSIGNED) */}
                 {['PENDING', 'CONFIRMED', 'ASSIGNED'].includes(status) && (
                   <ActionBtn icon="✅" label="Accept Booking" color="#166534" bg="#DCFCE7" border="#86EFAC"
@@ -559,7 +687,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                         await (bookingsAPI as any).accept(booking.id)
                         setOk('Marked on the way')
                         await load(); onRefresh()
-                      } catch (ex: any) { setErr(ex.response?.data?.detail || 'Failed') }
+                      } catch (ex: any) { setErr(extractApiError(ex, 'Failed')) }
                       finally { setActing(false) }
                     }} loading={acting} />
                 )}
@@ -576,6 +704,20 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                   <ActionBtn icon="🔍" label="Start Inspection" color="#92400E" bg="#FEF3C7" border="#FCD34D"
                     hint={noTechnician ? 'Assign a technician first' : 'Begin appliance inspection and quotation creation'}
                     onClick={() => transition('startInspection', 'Inspection started')} loading={acting} disabled={noTechnician} />
+                )}
+
+                {/* ── QUOTATION_APPROVED: Technician starts repair ── */}
+                {status === 'QUOTATION_APPROVED' && (
+                  <>
+                    <ActionBtn icon="🔧" label="Start Repair Work" color="#166534" bg="#DCFCE7" border="#86EFAC"
+                      hint={noTechnician ? 'Assign a technician first' : 'Quotation approved — begin repair work'}
+                      onClick={() => transition('startWork', 'Work started')} loading={acting} disabled={noTechnician} />
+                    {hasAnyApproved && approvedQuotations.map((q: any) => (
+                      <ActionBtn key={q.id} icon="📄" label={`Invoice: ${q.quotation_number}`} color="#7C3AED" bg="#F5F3FF" border="#DDD6FE"
+                        hint={`${money(q.total_amount)} approved — generate invoice`}
+                        onClick={() => openInvoiceForm(q)} loading={false} disabled={noTechnician} />
+                    ))}
+                  </>
                 )}
 
                 {/* Start Work — only after at least one approved quotation exists */}
@@ -607,7 +749,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                 )}
 
                 {/* Complete Work — only when all approved quotations have been invoiced or rejected */}
-                {['IN_PROGRESS', 'WORK_PAUSED'].includes(status) && (
+                {['IN_PROGRESS', 'WORK_PAUSED', 'QUOTATION_APPROVED'].includes(status) && (
                   <>
                     {repairsAllDone ? (
                       <ActionBtn icon="🏁" label="Complete Repair" color="#7C3AED" bg="#F5F3FF" border="#DDD6FE"
@@ -630,7 +772,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                 ))}
 
                 {/* Generate Invoice after work completed + at least one pending approved quotation */}
-                {['IN_PROGRESS', 'WORK_PAUSED'].includes(status) && hasAnyApproved && approvedQuotations.map((q: any) => (
+                {['IN_PROGRESS', 'WORK_PAUSED', 'QUOTATION_APPROVED'].includes(status) && hasAnyApproved && approvedQuotations.map((q: any) => (
                   <ActionBtn key={q.id} icon="📄" label={`Invoice: ${q.quotation_number}`} color="#7C3AED" bg="#F5F3FF" border="#DDD6FE"
                     hint={noTechnician ? 'Assign a technician first' : `${money(q.total_amount)} approved — generate invoice to proceed`}
                     onClick={() => openInvoiceForm(q)} loading={false} disabled={noTechnician} />
@@ -685,10 +827,178 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                         const r = await (bookingsAPI as any).commissionPreview(booking.id)
                         setSettlePreview(r.data.data)
                       } catch (ex: any) {
-                        setSettleErr(ex.response?.data?.detail || 'Failed to load commission preview')
+                        setSettleErr(extractApiError(ex, 'Failed to load commission preview'))
                         setSettlePreview(null)
                       } finally { setSettleLoading(false) }
                     }} loading={false} />
+                )}
+
+                {/* ── VISITING CHARGE: Pending Verification ── */}
+                {status === 'PENDING_VERIFICATION' && (
+                  <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 8, padding: '12px 14px', marginBottom: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: '#7C3AED', marginBottom: 6 }}>
+                      🔍 Visiting Charge — Pending Verification
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748B', marginBottom: 10 }}>
+                      Technician collected a visiting charge. Verify cash collection below, then settle &amp; close.
+                    </div>
+                    {/* Show invoice + payment summary inline */}
+                    {invoices.length > 0 && (
+                      <div style={{ background: 'white', border: '1px solid #DDD6FE', borderRadius: 6, padding: '8px 10px', marginBottom: 8, fontSize: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Visiting Charge Invoice</span>
+                          <b style={{ color: '#7C3AED' }}>{money(invoices[0]?.total_amount || 0)}</b>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                          <span style={{ color: '#64748B' }}>Collected by Technician</span>
+                          <b style={{ color: totalPaid >= totalInvoiced ? '#059669' : '#DC2626' }}>
+                            {money(totalPaid)}
+                          </b>
+                        </div>
+                        {totalOutstanding > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                            <span style={{ color: '#DC2626' }}>Outstanding</span>
+                            <b style={{ color: '#DC2626' }}>{money(totalOutstanding)}</b>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* Collect if unpaid */}
+                    {invoices.filter((inv: any) => balanceByInvoiceId[inv.id] > 0).map((inv: any) => (
+                      <ActionBtn key={inv.id} icon="💳"
+                        label={`Collect Visiting Charge — ${money(balanceByInvoiceId[inv.id])}`}
+                        color="#059669" bg="#F0FDF4" border="#86EFAC"
+                        hint="Record visiting charge payment from technician/customer"
+                        onClick={() => {
+                          const bal = balanceByInvoiceId[inv.id] || 0
+                          setPayTargetInvoice(inv)
+                          setPayAmount(bal > 0 ? bal.toFixed(2) : '')
+                          setPayMethod('CASH')
+                          setPayRef(''); setPayNotes(''); setPayDue('')
+                          setPayQR(''); setPayLink(''); setPayErr('')
+                          setShowPayForm(true)
+                        }} loading={false} />
+                    ))}
+                    {/* Settle & Close once paid */}
+                    {totalOutstanding <= 0 && (
+                      <ActionBtn icon="🔒" label="Verify &amp; Close Booking" color="#374151" bg="#F0FDF4" border="#86EFAC"
+                        hint="Confirm visiting charge collected — settle commission and close booking"
+                        onClick={async () => {
+                          setSettleErr(''); setSettleOverrides({}); setSettleNotes('Visiting charge — admin verified')
+                          setSettleLoading(true); setShowSettleModal(true)
+                          try {
+                            const r = await (bookingsAPI as any).commissionPreview(booking.id)
+                            setSettlePreview(r.data.data)
+                          } catch (ex: any) {
+                            setSettleErr(extractApiError(ex, 'Failed to load commission preview'))
+                            setSettlePreview(null)
+                          } finally { setSettleLoading(false) }
+                        }} loading={false} />
+                    )}
+                  </div>
+                )}
+
+                {/* ── CANCELLATION_REQUESTED: Admin must confirm or reject ── */}
+                {status === 'CANCELLATION_REQUESTED' && (
+                  <div style={{ background: '#FFF7ED', border: '2px solid #FCD34D', borderRadius: 10, padding: '12px 14px' }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: '#92400E', marginBottom: 6 }}>⚠️ Cancellation Requested</div>
+                    <div style={{ fontSize: 12, color: '#92400E', marginBottom: 10 }}>
+                      Technician has requested cancellation. Confirm to cancel the booking, or reject to restore it to the previous state.
+                      {(booking as any).cancelled_reason && <><br /><b>Reason:</b> {(booking as any).cancelled_reason}</>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        disabled={acting}
+                        onClick={async () => {
+                          setActing(true); setErr(''); setOk('');
+                          try {
+                            await bookingsAPI.confirmCancellation(booking.id, (booking as any).cancelled_reason || 'Confirmed by admin');
+                            setOk('✅ Cancellation confirmed — booking cancelled');
+                            await load(); onRefresh();
+                          } catch (ex: any) { setErr(extractApiError(ex, 'Failed')) }
+                          finally { setActing(false); }
+                        }}
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: 'none', background: '#DC2626', color: 'white', fontSize: 12, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer', opacity: acting ? 0.5 : 1 }}>
+                        ✓ Confirm Cancel
+                      </button>
+                      <button
+                        disabled={acting}
+                        onClick={async () => {
+                          setActing(true); setErr(''); setOk('');
+                          try {
+                            await bookingsAPI.rejectCancellation(booking.id, 'Rejected by admin — booking restored');
+                            setOk('✅ Cancellation rejected — booking restored');
+                            await load(); onRefresh();
+                          } catch (ex: any) { setErr(extractApiError(ex, 'Failed')) }
+                          finally { setActing(false); }
+                        }}
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E2E8F0', background: 'white', color: '#374151', fontSize: 12, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer', opacity: acting ? 0.5 : 1 }}>
+                        ✕ Reject (Restore)
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── VISITING CHARGE button — admin/CCO on behalf of technician ── */}
+                {['ARRIVED', 'INSPECTING', 'IN_PROGRESS', 'QUOTATION_APPROVED'].includes(status) && (
+                  <ActionBtn icon="🚶" label="Visiting Charge (Customer Declined)"
+                    color="#B91C1C" bg="#FEF2F2" border="#FECACA"
+                    hint="Technician arrived but customer won't proceed — initiate visiting charge invoice"
+                    onClick={async () => {
+                      const amt = prompt("Enter base visiting charge amount (₹):");
+                      if (!amt || isNaN(parseFloat(amt)) || parseFloat(amt) <= 0) return;
+                      const notes = prompt("Reason/notes (optional):") || "Customer declined repair — visiting charge";
+                      setActing(true); setErr(""); setOk("");
+                      try {
+                        await bookingsAPI.visitingCharge(booking.id, parseFloat(amt), notes);
+                        setOk(`✅ Visiting charge ₹${parseFloat(amt).toFixed(2)} initiated`);
+                        await load(); onRefresh();
+                      } catch (ex: any) { setErr(extractApiError(ex, "Failed to initiate visiting charge")); }
+                      finally { setActing(false); }
+                    }} loading={acting} />
+                )}
+
+                {/* ── Cancel Booking (admin — immediate, no confirmation needed) ── */}
+                {!['COMPLETED','CANCELLED','CLOSED','SETTLED','PAID','INVOICE_GENERATED','CANCELLATION_REQUESTED'].includes(status) && (
+                  <div>
+                    {!showCancelForm ? (
+                      <button
+                        onClick={() => setShowCancelForm(true)}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #FECACA', background: '#FFF5F5', cursor: 'pointer', fontSize: 12, color: '#DC2626', fontWeight: 600, textAlign: 'left' }}>
+                        ✕ Cancel Booking
+                      </button>
+                    ) : (
+                      <div style={{ border: '1px solid #FECACA', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <textarea
+                          rows={2}
+                          placeholder="Reason for cancellation..."
+                          value={cancelReason}
+                          onChange={e => setCancelReason(e.target.value)}
+                          style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 6, padding: '6px 10px', fontSize: 12, resize: 'vertical' }}
+                        />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button onClick={() => { setShowCancelForm(false); setCancelReason(''); }}
+                            style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #E2E8F0', background: 'white', fontSize: 12, cursor: 'pointer' }}>Back</button>
+                          <button
+                            disabled={!cancelReason.trim() || cancelling}
+                            onClick={async () => {
+                              if (!cancelReason.trim()) return;
+                              setCancelling(true); setErr(''); setOk('');
+                              try {
+                                await bookingsAPI.cancel(booking.id, cancelReason);
+                                setOk('✅ Booking cancelled');
+                                setShowCancelForm(false); setCancelReason('');
+                                await load(); onRefresh();
+                              } catch (ex: any) { setErr(extractApiError(ex, 'Failed to cancel')); }
+                              finally { setCancelling(false); }
+                            }}
+                            style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: 'none', background: cancelling || !cancelReason.trim() ? '#CBD5E0' : '#DC2626', color: 'white', fontSize: 12, fontWeight: 700, cursor: cancelling || !cancelReason.trim() ? 'not-allowed' : 'pointer' }}>
+                            {cancelling ? 'Cancelling...' : 'Confirm Cancel'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {/* Loss Inspection */}
@@ -778,7 +1088,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                           onClick={async () => {
                             setActing(true); setErr(''); setOk('')
                             try { await quotationsAPI.approve(q.id); setOk('✅ Quotation approved'); await load(); onRefresh() }
-                            catch (ex: any) { setErr(ex.response?.data?.detail || 'Approval failed') }
+                            catch (ex: any) { setErr(extractApiError(ex, 'Approval failed')) }
                             finally { setActing(false) }
                           }}>
                           ✅ Approve
@@ -1147,11 +1457,22 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
           {/* Invoice summary */}
           <div style={{ background: '#EFF6FF', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
             <div style={{ fontWeight: 700 }}>{payTargetInvoice.invoice_number}</div>
-            <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
+            <div style={{ display: 'flex', gap: 16, marginTop: 4, flexWrap: 'wrap' }}>
               <span>Total: <b style={{ color: '#059669' }}>{money(payTargetInvoice.total_amount)}</b></span>
               <span>Paid: <b style={{ color: '#10B981' }}>{money(paidByInvoiceId[payTargetInvoice.id] || 0)}</b></span>
               <span>Balance: <b style={{ color: '#DC2626' }}>{money(balanceByInvoiceId[payTargetInvoice.id] || 0)}</b></span>
             </div>
+            {payLaterByInvoiceId[payTargetInvoice.id] && (
+              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                <span style={{ background: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+                  ⏰ Pay Later Scheduled: {money(payLaterByInvoiceId[payTargetInvoice.id].amount)}
+                  {payLaterByInvoiceId[payTargetInvoice.id].due
+                    ? ` — due ${fmtDate(payLaterByInvoiceId[payTargetInvoice.id].due!)}`
+                    : ''}
+                </span>
+                <span style={{ color: '#6B7280' }}>Select CASH/UPI below to collect now and clear this schedule.</span>
+              </div>
+            )}
           </div>
 
           {/* Payment method selector */}
@@ -1386,7 +1707,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                     setOk('✅ Booking settled — commission credited to technician wallet')
                     await load(); onRefresh()
                   } catch (ex: any) {
-                    setSettleErr(ex.response?.data?.detail || 'Settlement failed')
+                    setSettleErr(extractApiError(ex, 'Settlement failed'))
                   } finally { setSettling(false) }
                 }}>
                   {settling ? <Spinner size="sm" /> : '🔒 Confirm Settlement & Close'}

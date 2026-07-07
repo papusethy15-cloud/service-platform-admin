@@ -23,6 +23,7 @@ import Pagination from '@/components/ui/Pagination'
 import Modal from '@/components/ui/Modal'
 import Spinner from '@/components/ui/Spinner'
 import BookingModal from '@/components/bookings/BookingModal'
+import { useAuthStore } from '@/store/authStore'
 
 // ─── tiny helpers ────────────────────────────────────────────────────────────
 const fmt = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -49,14 +50,45 @@ type Tab = 'info' | 'addresses' | 'appliances' | 'gst' | 'bookings'
 const lbl: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 5 }
 
 // ─── AddressForm ──────────────────────────────────────────────────────────────
+// Parse lat/lng from WhatsApp / Google Maps share URLs
+function extractLatLngFromUrl(url: string): { lat: string; lng: string } | null {
+  const patterns = [
+    /[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /loc:(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+  ]
+  for (const pat of patterns) {
+    const m = url.match(pat)
+    if (m) {
+      const lat = parseFloat(m[1]), lng = parseFloat(m[2])
+      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180)
+        return { lat: m[1], lng: m[2] }
+    }
+  }
+  return null
+}
+
 const EMPTY_ADDR = { label: 'Home', address_line1: '', address_line2: '', city: '', state: '', pincode: '', latitude: '', longitude: '', is_default: false }
 
 function AddressModal({ customerId, address, onClose, onSaved }: any) {
   const [form, setForm] = useState(address ? { ...address, latitude: address.latitude || '', longitude: address.longitude || '' } : EMPTY_ADDR)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  const [waUrl, setWaUrl] = useState('')
+  const [waErr, setWaErr] = useState('')
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }))
+
+  const handleWaUrlChange = (val: string) => {
+    setWaUrl(val); setWaErr('')
+    const result = extractLatLngFromUrl(val.trim())
+    if (result) {
+      setForm((f: any) => ({ ...f, latitude: result.lat, longitude: result.lng }))
+    } else if (val.trim() && (val.includes('maps') || val.includes('google'))) {
+      setWaErr('Could not parse coordinates from this link.')
+    }
+  }
   const handle = async () => {
     setSaving(true); setErr('')
     try {
@@ -92,9 +124,33 @@ function AddressModal({ customerId, address, onClose, onSaved }: any) {
             onChange={e => set(k, e.target.value)} />
         </div>
       ))}
+      {/* WhatsApp / Google Maps location paste */}
+      <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+        <label style={{ ...lbl, color: '#166534', marginBottom: 6 }}>💬 Paste WhatsApp / Google Maps Location Link</label>
+        <input
+          className="input"
+          placeholder="https://maps.google.com/?q=20.2961,85.8245"
+          value={waUrl}
+          onChange={e => handleWaUrlChange(e.target.value)}
+          style={{ fontFamily: 'monospace', fontSize: 12 }}
+        />
+        {waErr && <p style={{ color: '#B45309', fontSize: 11, marginTop: 4 }}>⚠️ {waErr}</p>}
+        {form.latitude && form.longitude && !waErr && waUrl && (
+          <p style={{ color: '#166534', fontSize: 11, marginTop: 4 }}>
+            ✓ Parsed: {form.latitude}, {form.longitude} —{' '}
+            <a href={`https://www.google.com/maps?q=${form.latitude},${form.longitude}`} target="_blank" rel="noreferrer" style={{ color: '#1B4FD8' }}>Verify</a>
+          </p>
+        )}
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-        <div><label style={lbl}>Latitude</label><input className="input" placeholder="Optional" value={form.latitude} onChange={e => set('latitude', e.target.value)} /></div>
-        <div><label style={lbl}>Longitude</label><input className="input" placeholder="Optional" value={form.longitude} onChange={e => set('longitude', e.target.value)} /></div>
+        <div>
+          <label style={lbl}>Latitude</label>
+          <input className="input" placeholder="Auto-filled from link" value={form.latitude} onChange={e => set('latitude', e.target.value)} />
+        </div>
+        <div>
+          <label style={lbl}>Longitude</label>
+          <input className="input" placeholder="Auto-filled from link" value={form.longitude} onChange={e => set('longitude', e.target.value)} />
+        </div>
       </div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 16, fontSize: 13 }}>
         <input type="checkbox" checked={form.is_default} onChange={e => set('is_default', e.target.checked)} />
@@ -211,8 +267,9 @@ function AddApplianceModal({ customerId, onClose, onSaved }: any) {
 }
 
 // ─── CustomerDetailModal ──────────────────────────────────────────────────────
-function CustomerDetailModal({ customer: initial, onClose, onBooking }: {
+function CustomerDetailModal({ customer: initial, onClose, onBooking, isAdmin, onPermanentDelete }: {
   customer: any; onClose: () => void; onBooking: (c: any, a: any[], appl: any[]) => void
+  isAdmin?: boolean; onPermanentDelete?: (c: any) => void
 }) {
   const [customer, setCustomer]   = useState(initial)
   const [tab, setTab]             = useState<Tab>('info')
@@ -311,7 +368,18 @@ function CustomerDetailModal({ customer: initial, onClose, onBooking }: {
             📝 {customer.notes}
           </div>}
           {!editInfo ? (
-            <button className="btn btn-secondary" onClick={() => { setEditInfo(true); setErr('') }}>Edit Info</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary" onClick={() => { setEditInfo(true); setErr('') }}>Edit Info</button>
+              {isAdmin && onPermanentDelete && (
+                <button
+                  className="btn btn-danger"
+                  title="Permanently delete -- also deletes ALL related bookings, quotations, invoices, payments, etc. Irreversible."
+                  onClick={() => onPermanentDelete(customer)}
+                >
+                  Permanently Delete (Admin)
+                </button>
+              )}
+            </div>
           ) : (
             <div style={{ background: '#F8FAFC', borderRadius: 8, padding: 16, border: '1px solid #E2E8F0' }}>
               <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Edit Customer Info</h4>
@@ -591,6 +659,12 @@ export default function Customers() {
   const [search, setSearch]       = useState('')
   const [selected, setSelected]   = useState<any>(null)   // customer for detail modal
   const [showCreate, setShowCreate] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // Permanent delete (with Firebase Auth cleanup) is restricted to Admin/Super Admin --
+  // this only hides the button; the backend enforces the same restriction independently.
+  const role = useAuthStore(s => s.user?.role)
+  const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN'
 
   // Booking modal state
   const [bookingCustomer, setBookingCustomer]   = useState<any>(null)
@@ -614,6 +688,30 @@ export default function Customers() {
     setBookingCustomer(customer)
     setBookingAddresses(addresses)
     setBookingAppliances(appliances)
+  }
+
+  const permanentlyDeleteCustomer = async (customer: any) => {
+    const confirmed = confirm(
+      `Permanently delete "${customer.name}" (${customer.customer_code})?\n\n` +
+      `This deletes their account AND every booking, quotation, invoice, payment, ` +
+      `warranty, rating, AMC subscription, and CRM note linked to them -- plus their ` +
+      `Firebase Auth sign-in (Google login). THIS CANNOT BE UNDONE. There is no backup ` +
+      `or recovery once you confirm.\n\n` +
+      `If you just want to hide this customer while keeping their history, cancel this ` +
+      `and use the regular Delete (deactivate) action instead.`
+    )
+    if (!confirmed) return
+    setDeletingId(customer.id)
+    try {
+      const res = await customersAPI.deletePermanent(customer.id)
+      alert(res.data?.message || 'Customer permanently deleted')
+      if (selected?.id === customer.id) setSelected(null)
+      fetchCustomers()
+    } catch (ex: any) {
+      alert(ex.response?.data?.detail || 'Failed to permanently delete customer')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   return (
@@ -656,6 +754,16 @@ export default function Customers() {
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button className="btn btn-secondary btn-sm" onClick={() => setSelected(c)}>View</button>
+                          {isAdmin && (
+                            <button
+                              className="btn btn-danger btn-sm"
+                              title="Permanently delete -- also deletes ALL related bookings, quotations, invoices, payments, etc. Irreversible."
+                              disabled={deletingId === c.id}
+                              onClick={() => permanentlyDeleteCustomer(c)}
+                            >
+                              {deletingId === c.id ? <Spinner size="sm" /> : 'Delete'}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -673,6 +781,8 @@ export default function Customers() {
           customer={selected}
           onClose={() => setSelected(null)}
           onBooking={openBooking}
+          isAdmin={isAdmin}
+          onPermanentDelete={permanentlyDeleteCustomer}
         />
       )}
 

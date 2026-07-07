@@ -56,6 +56,24 @@ export const bookingsAPI = {
   assign: (id: string, d: object) => api.post(`/bookings/${id}/assign`, d),
   cancel: (id: string, d: object) => api.post(`/bookings/${id}/cancel`, d),
   timeline: (id: string) => api.get(`/bookings/${id}/timeline`),
+  // Cancellation request flow
+  confirmCancellation: (id: string, reason?: string) => api.post(`/bookings/${id}/confirm-cancellation`, { reason }),
+  rejectCancellation: (id: string, reason?: string) => api.post(`/bookings/${id}/reject-cancellation`, { reason }),
+  // Lifecycle transitions
+  accept: (id: string) => api.post(`/bookings/${id}/accept`),
+  enRoute: (id: string) => api.post(`/bookings/${id}/en-route`),
+  arrived: (id: string) => api.post(`/bookings/${id}/arrived`),
+  startInspection: (id: string) => api.post(`/bookings/${id}/start-inspection`),
+  startWork: (id: string) => api.post(`/bookings/${id}/start-work`),
+  completeWork: (id: string) => api.post(`/bookings/${id}/complete-work`),
+  pauseWork: (id: string) => api.post(`/bookings/${id}/pause-work`),
+  resumeWork: (id: string) => api.post(`/bookings/${id}/resume-work`),
+  markPaid: (id: string) => api.post(`/bookings/${id}/mark-paid`),
+  // Visiting charge on behalf of technician
+  visitingCharge: (id: string, amount: number, notes?: string) => api.post(`/bookings/${id}/visiting-charge`, { amount, notes }),
+  // Commission + settlement
+  commissionPreview: (id: string) => api.get(`/bookings/${id}/commission-preview`),
+  settleBooking: (id: string, d: object) => api.post(`/bookings/${id}/settle`, d),
 };
 
 // ── TECHNICIANS ───────────────────────────────────────────────

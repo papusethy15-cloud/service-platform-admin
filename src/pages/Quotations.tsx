@@ -16,6 +16,8 @@ import StatusBadge from '@/components/ui/StatusBadge'
 import Pagination from '@/components/ui/Pagination'
 import Modal from '@/components/ui/Modal'
 import Spinner from '@/components/ui/Spinner'
+import { useBookingWebSocket } from '@/hooks/useAdminWebSocket'
+import { useAuthStore } from '@/store/authStore'
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const money = (n: number | null | undefined) =>
@@ -1190,6 +1192,26 @@ export function QuotationEditor({
     }
   }, [])
 
+  // ── Real-time sync: admin <-> technician ──────────────────────────────────
+  // Subscribes to /ws/booking/{booking_id}. When the technician (or another
+  // admin tab) creates/edits this quotation, QUOTATION_* events arrive here
+  // and we silently reload so both sides always see the latest state.
+  const currentUserId = useAuthStore(s => s.user?.id)
+  const { lastEvent: quotationWsEvent } = useBookingWebSocket(q?.booking_id || initQuotation?.booking_id || null)
+  useEffect(() => {
+    if (!quotationWsEvent) return
+    const isQuotationEvent = ['QUOTATION_CREATED', 'QUOTATION_UPDATED', 'QUOTATION_DELETED'].includes(quotationWsEvent.type)
+    if (!isQuotationEvent) return
+    // Skip the reload that would just be echoing our own just-made change —
+    // avoids a redundant flicker right after we save.
+    const actorId = quotationWsEvent.payload?.actor_user_id
+    if (actorId && currentUserId && actorId === currentUserId) return
+    // Only react to events for the quotation we currently have open
+    // (the booking room also carries events for sibling quotations/revisions).
+    if (quotationWsEvent.payload?.id && q?.id && quotationWsEvent.payload.id !== q.id) return
+    reload()
+  }, [quotationWsEvent])
+
   // Parse groups from services/parts
   const services: any[] = q?.services || []
   const parts: any[] = q?.parts || []
@@ -1818,6 +1840,8 @@ export function QuotationFromBookingModal({
         tax_percent: form.tax_mode === 'NONE' ? 0 : form.tax_percent,
         remarks: form.remarks || undefined,
         tax_mode: form.tax_mode,
+        // Admin creates on behalf of the assigned technician (same as CCO)
+        on_behalf_technician_id: booking?.technician_id || undefined,
       }
       // Coupon is carried over automatically from the booking — only ever on the
       // first quotation (backend also enforces this). Admin cannot type/override it.
@@ -2553,7 +2577,12 @@ export default function Quotations() {
                           {q.status === 'SUBMITTED' && ['ADMIN', 'SUPER_ADMIN', 'CCO'].includes(userRole) && (
                             <button className="btn btn-secondary btn-sm"
                               style={{ fontSize: 11, background: '#F0FDF4', color: '#166534', border: '1px solid #86EFAC' }}
-                              onClick={async () => { try { await quotationsAPI.approve(q.id); fetchList() } catch { } }}>
+                              onClick={async () => {
+                                if (!window.confirm(`Approve quotation ${q.quotation_number}? This will update the booking amounts and notify the technician.`)) return;
+                                try { await quotationsAPI.approve(q.id); fetchList() } catch (err: any) {
+                                  alert(`Failed to approve: ${err?.response?.data?.detail || err?.message || 'Unknown error'}`);
+                                }
+                              }}>
                               ✅ Approve
                             </button>
                           )}

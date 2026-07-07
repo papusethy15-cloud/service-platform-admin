@@ -16,7 +16,7 @@
  *  ✅ Status color coding + priority badges
  */
 import { useEffect, useState, useCallback } from 'react'
-import { bookingsAPI, techniciansAPI, assignmentsAPI } from '@/services/api'
+import { bookingsAPI, assignmentsAPI } from '@/services/api'
 import PageHeader from '@/components/layout/PageHeader'
 import Pagination from '@/components/ui/Pagination'
 import Modal from '@/components/ui/Modal'
@@ -25,6 +25,8 @@ import StatusBadge from '@/components/ui/StatusBadge'
 import BookingModal from '@/components/bookings/BookingModal'
 import BookingWorkflow from '@/components/bookings/BookingWorkflow'
 import { QuotationFromBookingModal } from '@/pages/Quotations'
+import AssignTechnicianModal from '@/components/bookings/AssignTechnicianModal'
+import { useAdminWebSocket } from '@/hooks/useAdminWebSocket'
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const money   = (n: number) => `₹${(n || 0).toLocaleString('en-IN')}`
@@ -42,6 +44,17 @@ const PRIORITY_STYLE: Record<string, { bg: string; color: string }> = {
   NORMAL: { bg: '#F1F5F9', color: '#475569' },
 }
 
+// Statuses that still require admin attention — used in Action Mode
+const ACTION_STATUSES = [
+  'PENDING', 'CONFIRMED', 'ASSIGNED', 'ACCEPTED',
+  'EN_ROUTE', 'ARRIVED', 'INSPECTING', 'IN_PROGRESS',
+  'COMPLETED', 'RESCHEDULED',
+  'INVOICE_GENERATED', 'PAYMENT_PENDING',
+  'PENDING_VERIFICATION',   // visiting charge — needs admin collect + close
+]
+// Terminal statuses that need no further admin action
+const TERMINAL_STATUSES = ['PAID', 'CLOSED', 'SETTLED', 'CANCELLED']
+
 const STATUS_GROUPS = {
   active:    ['PENDING', 'CONFIRMED', 'ASSIGNED', 'ACCEPTED', 'EN_ROUTE', 'ARRIVED', 'INSPECTING', 'IN_PROGRESS'],
   completed: ['COMPLETED', 'INVOICE_GENERATED', 'PAYMENT_PENDING', 'PAID', 'CLOSED', 'SETTLED'],
@@ -54,15 +67,25 @@ const statusDot: Record<string, string> = {
   INSPECTING: '#F97316', IN_PROGRESS: '#10B981',
   COMPLETED: '#22C55E', CANCELLED: '#EF4444', RESCHEDULED: '#F97316',
   PAID: '#059669', CLOSED: '#374151', SETTLED: '#1E3A5F', INVOICE_GENERATED: '#7C3AED', PAYMENT_PENDING: '#F97316',
+  PENDING_VERIFICATION: '#7C3AED',
 }
 
+// Canonical slot values stored in DB — HH:MM-HH:MM (24h)
 const SLOTS = [
-  '08:00 AM – 10:00 AM','10:00 AM – 12:00 PM','12:00 PM – 02:00 PM',
-  '02:00 PM – 04:00 PM','04:00 PM – 06:00 PM','06:00 PM – 08:00 PM',
+  { value: '08:00-10:00', label: '8:00 – 10:00 AM'    },
+  { value: '10:00-12:00', label: '10:00 AM – 12:00 PM' },
+  { value: '12:00-14:00', label: '12:00 – 2:00 PM'    },
+  { value: '14:00-16:00', label: '2:00 – 4:00 PM'     },
+  { value: '16:00-18:00', label: '4:00 – 6:00 PM'     },
+  { value: '18:00-20:00', label: '6:00 – 8:00 PM'     },
 ]
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Bookings() {
+  // ── view mode: 'action' = excludes terminal statuses, 'all' = everything ──
+  type ViewMode = 'action' | 'all'
+  const [viewMode, setViewMode] = useState<ViewMode>('action')
+
   // ── list state ──
   const [bookings, setBookings] = useState<any[]>([])
   const [loading,  setLoading]  = useState(true)
@@ -88,13 +111,6 @@ export default function Bookings() {
   const [cancelSaving, setCancelSaving] = useState(false)
 
   const [assignBkg,    setAssignBkg]    = useState<any>(null)
-  const [technicians,  setTechnicians]  = useState<any[]>([])
-  const [selTech,      setSelTech]      = useState('')
-  const [assignSaving, setAssignSaving] = useState(false)
-  const [assignErr,    setAssignErr]    = useState('')
-  const [assignNotes,  setAssignNotes]  = useState('')
-  const [autoAssigning, setAutoAssigning] = useState(false)
-  const [assignSuccess, setAssignSuccess] = useState('')
 
   const [reschBkg,    setReschBkg]    = useState<any>(null)
   const [reschDate,   setReschDate]   = useState('')
@@ -116,11 +132,18 @@ export default function Bookings() {
     setLoading(true)
     try {
       const params: any = { page, per_page: 20 }
-      if (statusFilter)   params.status    = statusFilter
       if (priorityFilter) params.priority  = priorityFilter
       if (search)         params.search    = search
       if (dateFrom)       params.date_from = dateFrom
       if (dateTo)         params.date_to   = dateTo
+      if (statusFilter) {
+        // Explicit status filter always wins
+        params.status = statusFilter
+      } else if (viewMode === 'action') {
+        // Action Mode: only pass statuses that need attention
+        params.status = ACTION_STATUSES.join(',')
+      }
+      // All Mode with no status filter: no status param = backend returns everything
       const res = await bookingsAPI.list(params)
       const d   = res.data.data
       setBookings(d.items || d.bookings || [])
@@ -128,9 +151,20 @@ export default function Bookings() {
       setTotal(d.total  || 0)
     } catch { setBookings([]) }
     finally  { setLoading(false) }
-  }, [page, statusFilter, priorityFilter, search, dateFrom, dateTo])
+  }, [page, statusFilter, priorityFilter, search, dateFrom, dateTo, viewMode])
 
   useEffect(() => { fetchBookings() }, [fetchBookings])
+
+  // ── Live WebSocket: auto-refresh bookings list on assignment events ────────
+  const { subscribe } = useAdminWebSocket()
+  useEffect(() => {
+    const unsub1 = subscribe('ASSIGNMENT_CREATED',        () => fetchBookings())
+    const unsub2 = subscribe('ASSIGNMENT_ACCEPTED',       () => fetchBookings())
+    const unsub3 = subscribe('ASSIGNMENT_REJECTED',       () => fetchBookings())
+    const unsub4 = subscribe('ASSIGNMENT_AUTO_CANCELLED', () => fetchBookings())
+    const unsub5 = subscribe('BOOKING_STATUS_CHANGED',    () => fetchBookings())
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5() }
+  }, [subscribe, fetchBookings])
 
   // debounce search
   useEffect(() => {
@@ -160,52 +194,7 @@ export default function Bookings() {
   }
 
   // ── assign ──
-  const openAssign = async (b: any) => {
-    setAssignBkg(b); setSelTech(''); setAssignErr(''); setAssignNotes(''); setAssignSuccess('')
-    setTechnicians([])
-    try {
-      const r = await techniciansAPI.list({ per_page: 500, status: 'ACTIVE' })
-      const d = r.data.data
-      // Backend returns { technicians: [...] } or { items: [...] } or array directly
-      const list = Array.isArray(d) ? d
-        : (d?.technicians || d?.items || [])
-      setTechnicians(list)
-    } catch (ex: any) {
-      const detail = ex.response?.data?.detail
-      const errMsg = typeof detail === 'string' ? detail
-        : Array.isArray(detail) ? detail.map((e: any) => e.msg || JSON.stringify(e)).join('; ')
-        : detail ? JSON.stringify(detail) : (ex.message || 'Unknown error')
-      setAssignErr('Failed to load technicians: ' + errMsg)
-      setTechnicians([])
-    }
-  }
-
-  const doManualAssign = async () => {
-    if (!assignBkg || !selTech) return
-    setAssignSaving(true); setAssignErr('')
-    try {
-      await assignmentsAPI.manual({ booking_id: assignBkg.id, technician_id: selTech, notes: assignNotes || undefined })
-      setAssignSuccess('✅ Technician assigned successfully')
-      setTimeout(() => { setAssignBkg(null); fetchBookings() }, 1200)
-    } catch (ex: any) {
-      const d2 = ex.response?.data?.detail
-      setAssignErr(typeof d2 === 'string' ? d2 : d2 ? JSON.stringify(d2) : 'Assignment failed')
-    } finally { setAssignSaving(false) }
-  }
-
-  const doAutoAssign = async () => {
-    if (!assignBkg) return
-    setAutoAssigning(true); setAssignErr('')
-    try {
-      const r = await assignmentsAPI.auto({ booking_id: assignBkg.id, notes: assignNotes || undefined })
-      const d = r.data.data
-      setAssignSuccess(`✅ Auto-assigned to ${d.technician_name || 'technician'} (Score: ${d.score || 0})`)
-      setTimeout(() => { setAssignBkg(null); fetchBookings() }, 1500)
-    } catch (ex: any) {
-      const d3 = ex.response?.data?.detail
-      setAssignErr(typeof d3 === 'string' ? d3 : d3 ? JSON.stringify(d3) : 'Auto-assignment failed — no matching technician found')
-    } finally { setAutoAssigning(false) }
-  }
+  const openAssign = (b: any) => { setAssignBkg(b) }
 
   // ── cancel ──
   const doCancel = async () => {
@@ -264,13 +253,40 @@ export default function Bookings() {
     <div style={{ padding: '24px 28px' }}>
       <PageHeader
         title="Bookings"
-        subtitle={`${total} booking${total !== 1 ? 's' : ''}`}
+        subtitle={`${total} booking${total !== 1 ? 's' : ''}${viewMode === 'action' ? ' needing action' : ''}`}
         actions={
           <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
             + New Booking
           </button>
         }
       />
+
+      {/* ── Mode Toggle ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#64748B', marginRight: 4 }}>View:</span>
+        <div style={{ display: 'flex', background: '#F1F5F9', borderRadius: 8, padding: 3, gap: 2 }}>
+          {(['action', 'all'] as const).map(mode => (
+            <button
+              key={mode}
+              onClick={() => { setViewMode(mode); setPage(1); setStatusFilter('') }}
+              style={{
+                padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: 700, transition: 'all 0.15s',
+                background: viewMode === mode ? (mode === 'action' ? '#1B4FD8' : '#374151') : 'transparent',
+                color: viewMode === mode ? 'white' : '#64748B',
+                boxShadow: viewMode === mode ? '0 1px 4px rgba(0,0,0,0.15)' : 'none',
+              }}
+            >
+              {mode === 'action' ? '⚡ Needs Action' : '📋 All Bookings'}
+            </button>
+          ))}
+        </div>
+        {viewMode === 'action' && (
+          <span style={{ fontSize: 11, color: '#64748B', fontStyle: 'italic', marginLeft: 4 }}>
+            Hiding: Paid · Closed · Settled · Cancelled
+          </span>
+        )}
+      </div>
 
       {/* ── Filter Bar ── */}
       <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
@@ -294,14 +310,22 @@ export default function Bookings() {
           <div style={{ flex: '1 1 150px', minWidth: 130 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Status</div>
             <select className="input" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
-              <option value="">All Statuses</option>
+              <option value="">{viewMode === 'action' ? 'Action Statuses' : 'All Statuses'}</option>
               <optgroup label="── Active ──">
                 {STATUS_GROUPS.active.map(s => <option key={s} value={s}>{s}</option>)}
               </optgroup>
               <optgroup label="── Done ──">
                 <option value="COMPLETED">COMPLETED</option>
-                <option value="CANCELLED">CANCELLED</option>
                 <option value="RESCHEDULED">RESCHEDULED</option>
+                <option value="INVOICE_GENERATED">INVOICE_GENERATED</option>
+                <option value="PAYMENT_PENDING">PAYMENT_PENDING</option>
+                {viewMode === 'all' && <>
+                  <option value="PAID">PAID</option>
+                  <option value="CLOSED">CLOSED</option>
+                  <option value="SETTLED">SETTLED</option>
+                  <option value="CANCELLED">CANCELLED</option>
+                </>}
+                <option value="PENDING_VERIFICATION">PENDING_VERIFICATION</option>
               </optgroup>
             </select>
           </div>
@@ -392,7 +416,8 @@ export default function Bookings() {
                     <tr>
                       <td colSpan={11} style={{ textAlign: 'center', color: '#94A3B8', padding: 48 }}>
                         <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
-                        <div style={{ fontSize: 14 }}>No bookings found</div>
+                        <div style={{ fontSize: 14 }}>{viewMode === 'action' ? 'No bookings needing action' : 'No bookings found'}</div>
+                        {viewMode === 'action' && !hasFilter && <div style={{ fontSize: 12, marginTop: 4, color: '#22C55E' }}>🎉 All caught up! Switch to All Bookings to see closed records.</div>}
                         {hasFilter && <div style={{ fontSize: 12, marginTop: 4 }}>Try clearing your filters</div>}
                       </td>
                     </tr>
@@ -466,7 +491,17 @@ export default function Bookings() {
                       <td>
                         {b.technician_name ? (
                           <>
-                            <div style={{ fontSize: 13, color: '#0F172A' }}>{b.technician_name}</div>
+                            <div style={{ fontSize: 13, color: '#0F172A', display: 'flex', alignItems: 'center', gap: 5 }}>
+                              {b.technician_name}
+                              {!b.technician_confirmed && b.status === 'ASSIGNED' && (
+                                <span title="Dispatched — awaiting technician acceptance" style={{
+                                  fontSize: 9, fontWeight: 700, padding: '1px 5px',
+                                  background: '#FFF7ED', color: '#C2410C',
+                                  border: '1px solid #FED7AA', borderRadius: 4,
+                                  whiteSpace: 'nowrap',
+                                }}>⏳ Pending</span>
+                              )}
+                            </div>
                             <div style={{ fontSize: 11, color: '#94A3B8' }}>{b.technician_mobile}</div>
                           </>
                         ) : (
@@ -791,7 +826,7 @@ export default function Bookings() {
             <label style={lbl}>Time Slot</label>
             <select className="input" value={editForm.scheduled_slot} onChange={e => setEditForm(f => ({ ...f, scheduled_slot: e.target.value }))}>
               <option value="">— Keep existing / Any —</option>
-              {SLOTS.map(s => <option key={s} value={s}>{s}</option>)}
+              {SLOTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
           </div>
 
@@ -828,107 +863,11 @@ export default function Bookings() {
           ASSIGN MODAL
       ══════════════════════════════════════════════════════════════ */}
       {assignBkg && (
-        <Modal title={assignBkg?.technician_name ? "Reassign Technician" : "Assign Technician"} onClose={() => setAssignBkg(null)} size="md">
-          {/* Booking info strip */}
-          <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
-            <div style={{ fontWeight: 800, fontFamily: 'monospace', color: '#1B4FD8' }}>{assignBkg.booking_number}</div>
-            <div style={{ color: '#64748B', marginTop: 2 }}>
-              👤 {assignBkg.customer_name || '—'}
-              {assignBkg.city && <> · 📍 {assignBkg.city}</>}
-              {assignBkg.service_name && <> · 🔧 {assignBkg.service_name}</>}
-            </div>
-            {assignBkg.technician_name && (
-              <div style={{ fontSize: 12, color: '#059669', marginTop: 3 }}>
-                Currently assigned: 👷 {assignBkg.technician_name}
-              </div>
-            )}
-          </div>
-
-          {/* Success */}
-          {assignSuccess && (
-            <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', color: '#166534', borderRadius: 6, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>
-              {assignSuccess}
-            </div>
-          )}
-
-          {/* Error */}
-          {assignErr && (
-            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', borderRadius: 6, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>
-              ⚠ {assignErr}
-            </div>
-          )}
-
-          {/* Auto Assign section */}
-          <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 6 }}>
-              ⚡ Auto Assignment
-            </div>
-            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 10 }}>
-              System picks best technician by skill match, city, rating & workload (per BR-ASSIGN-004)
-            </div>
-            <button
-              className="btn btn-secondary btn-sm"
-              style={{ background: '#DCFCE7', color: '#166534', border: '1px solid #86EFAC', fontWeight: 700 }}
-              onClick={doAutoAssign}
-              disabled={autoAssigning || assignSaving || !!assignSuccess}
-            >
-              {autoAssigning ? <Spinner size="sm" /> : '⚡ Auto Assign'}
-            </button>
-          </div>
-
-          {/* Divider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-            <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
-            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>OR ASSIGN MANUALLY</span>
-            <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
-          </div>
-
-          {/* Manual assign */}
-          <div style={{ marginBottom: 12 }}>
-            <label style={lbl}>Select Technician</label>
-            {technicians.length === 0 ? (
-              <div style={{ fontSize: 12, color: '#94A3B8', padding: 8, textAlign: 'center' }}>
-                ⏳ Loading technicians…
-              </div>
-            ) : (
-              <select className="input" value={selTech} onChange={e => setSelTech(e.target.value)}>
-                <option value="">— Select technician ({technicians.length} available) —</option>
-                {technicians.map((t: any) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name || '(no name)'}{t.mobile ? ` · ${t.mobile}` : ''}{t.city ? ` · 📍${t.city}` : ''}{t.rating ? ` · ⭐${t.rating}` : ''}
-                  </option>
-                ))}
-              </select>
-            )}
-            {selTech && (() => {
-              const tech = technicians.find((t: any) => t.id === selTech)
-              return tech ? (
-                <div style={{ fontSize: 11, color: '#64748B', marginTop: 4, display: 'flex', gap: 12 }}>
-                  {tech.mobile && <span>📞 {tech.mobile}</span>}
-                  {tech.city && <span>📍 {tech.city}</span>}
-                  {tech.rating !== undefined && <span>⭐ {tech.rating}</span>}
-                  {tech.status && <span>● {tech.status}</span>}
-                </div>
-              ) : null
-            })()}
-          </div>
-
-          <div style={{ marginBottom: 14 }}>
-            <label style={lbl}>Notes (optional)</label>
-            <input className="input" value={assignNotes} onChange={e => setAssignNotes(e.target.value)} placeholder="Assignment notes…" />
-          </div>
-
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              className="btn btn-primary"
-              onClick={doManualAssign}
-              disabled={!selTech || assignSaving || autoAssigning || !!assignSuccess}
-            >
-              {assignSaving ? <Spinner size="sm" /> : '👷 Manual Assign'}
-            </button>
-            <button className="btn btn-secondary" onClick={() => setAssignBkg(null)}>Cancel</button>
-          </div>
-        </Modal>
+        <AssignTechnicianModal
+          booking={assignBkg}
+          onClose={() => setAssignBkg(null)}
+          onDone={fetchBookings}
+        />
       )}
 
       {/* ══════════════════════════════════════════════════════════════
@@ -969,7 +908,7 @@ export default function Bookings() {
             <label style={lbl}>New Time Slot</label>
             <select className="input" value={reschSlot} onChange={e => setReschSlot(e.target.value)}>
               <option value="">— Keep existing —</option>
-              {SLOTS.map(s => <option key={s} value={s}>{s}</option>)}
+              {SLOTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>

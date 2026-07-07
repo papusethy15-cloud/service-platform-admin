@@ -19,6 +19,7 @@ import Commissions    from '@/pages/Commissions'
 import CashCollections from '@/pages/CashCollections'
 import CommissionGroups from '@/pages/CommissionGroups'
 import Wallet         from '@/pages/Wallet'
+import Settlements    from '@/pages/Settlements'
 import Coupons        from '@/pages/Coupons'
 import Escalations    from '@/pages/Escalations'
 import Attendance     from '@/pages/Attendance'
@@ -32,6 +33,7 @@ import Audit          from '@/pages/Audit'
 import Users          from '@/pages/Users'
 import Settings       from '@/pages/Settings'
 import CallbackRequests from '@/pages/CallbackRequests'
+import DispatchMonitor  from '@/pages/DispatchMonitor'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -63,6 +65,7 @@ export default function App() {
                 <Route path="/cash-collections" element={<CashCollections />} />
                 <Route path="/commission-groups" element={<CommissionGroups />} />
                 <Route path="/wallet"       element={<Wallet />} />
+                <Route path="/settlements"  element={<Settlements />} />
                 <Route path="/coupons"      element={<Coupons />} />
                 <Route path="/escalations"  element={<Escalations />} />
                 <Route path="/attendance"   element={<Attendance />} />
@@ -76,6 +79,7 @@ export default function App() {
                 <Route path="/users"        element={<Users />} />
                 <Route path="/settings"     element={<Settings />} />
                 <Route path="/callback-requests" element={<CallbackRequests />} />
+                <Route path="/dispatch"         element={<DispatchMonitor />} />
                 <Route path="*"             element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>

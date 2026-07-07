@@ -36,9 +36,14 @@ const Err = ({ msg }: { msg: any }) =>
     </div>
   ) : null
 
+// Canonical slot values stored in DB — HH:MM-HH:MM (24h)
 const SLOTS = [
-  '08:00 AM – 10:00 AM', '10:00 AM – 12:00 PM', '12:00 PM – 02:00 PM',
-  '02:00 PM – 04:00 PM', '04:00 PM – 06:00 PM', '06:00 PM – 08:00 PM',
+  { value: '08:00-10:00', label: '8:00 – 10:00 AM'    },
+  { value: '10:00-12:00', label: '10:00 AM – 12:00 PM' },
+  { value: '12:00-14:00', label: '12:00 – 2:00 PM'    },
+  { value: '14:00-16:00', label: '2:00 – 4:00 PM'     },
+  { value: '16:00-18:00', label: '4:00 – 6:00 PM'     },
+  { value: '18:00-20:00', label: '6:00 – 8:00 PM'     },
 ]
 
 const ACTIVE_STATUSES = ['PENDING', 'CONFIRMED', 'ASSIGNED', 'ACCEPTED', 'EN_ROUTE', 'ARRIVED', 'INSPECTING', 'IN_PROGRESS']
@@ -762,7 +767,7 @@ export default function BookingModal({
               <label style={lbl}>Time Slot</label>
               <select className="input" value={form.scheduled_slot} onChange={e => set('scheduled_slot', e.target.value)}>
                 <option value="">— Any slot —</option>
-                {SLOTS.map(s => <option key={s} value={s}>{s}</option>)}
+                {SLOTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
           </div>
