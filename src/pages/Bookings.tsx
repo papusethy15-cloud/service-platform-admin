@@ -127,6 +127,36 @@ export default function Bookings() {
   const [quotationBkg, setQuotationBkg] = useState<any>(null)
   const [workflowBkg, setWorkflowBkg] = useState<any>(null)
 
+  // ── settle modal (from bookings detail) ──
+  const [settleBooking, setSettleBooking] = useState<any>(null)
+  const [settlePreview, setSettlePreview] = useState<any>(null)
+  const [settleLoading, setSettleLoading] = useState(false)
+  const [settleNotes, setSettleNotes]     = useState('')
+  const [settleOverrides, setSettleOverrides] = useState<Record<number, string>>({})
+  const [settleErr, setSettleErr]         = useState('')
+
+  const openSettleModal = async (b: any) => {
+    setSettleBooking(b); setSettlePreview(null); setSettleNotes(''); setSettleOverrides({}); setSettleErr('')
+    try {
+      const r = await bookingsAPI.commissionPreview(b.id)
+      setSettlePreview(r.data.data)
+    } catch (ex: any) {
+      setSettleErr(ex.response?.data?.detail || 'Failed to load commission preview')
+    }
+  }
+
+  const handleSettle = async () => {
+    if (!settleBooking) return
+    setSettleLoading(true); setSettleErr('')
+    try {
+      const overrideList = Object.entries(settleOverrides).map(([idx, amt]) => ({ item_index: Number(idx), override_amount: Number(amt) }))
+      await bookingsAPI.settleBooking(settleBooking.id, { overrides: overrideList, notes: settleNotes || undefined })
+      setSettleBooking(null); fetchBookings()
+    } catch (ex: any) {
+      setSettleErr(ex.response?.data?.detail || 'Failed to settle booking')
+    } finally { setSettleLoading(false) }
+  }
+
   // ── fetch ──
   const fetchBookings = useCallback(async () => {
     setLoading(true)
@@ -794,6 +824,15 @@ export default function Bookings() {
                     ✕ Cancel
                   </button>
                 )}
+                {['PAID', 'COMPLETED', 'INVOICE_GENERATED', 'PAYMENT_PENDING'].includes(detail.status) && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    style={{ background: '#059669', color: '#fff', border: 'none' }}
+                    onClick={() => { openSettleModal(detail); setDetail(null) }}
+                  >
+                    🔒 Settle & Close
+                  </button>
+                )}
                 <button
                   className="btn btn-secondary btn-sm"
                   style={{ background: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}
@@ -954,6 +993,70 @@ export default function Bookings() {
           onRefresh={fetchBookings}
           userRole="ADMIN"
         />
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════
+          SETTLE MODAL
+      ══════════════════════════════════════════════════════════════ */}
+      {settleBooking && (
+        <Modal title={`Settle & Close — #${settleBooking.booking_number}`} onClose={() => setSettleBooking(null)} size="md">
+          {settleErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 12 }}>{settleErr}</div>}
+          {!settlePreview && !settleErr && (
+            <div style={{ textAlign: 'center', padding: 40 }}><Spinner /></div>
+          )}
+          {settlePreview && (
+            <>
+              <div style={{ background: '#F0FDF4', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
+                <b>Commission breakdown</b>
+                <div style={{ marginTop: 8 }}>
+                  {(settlePreview.line_items || []).map((item: any, idx: number) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ color: '#374151', flex: 1 }}>{item.name} ({item.type})</span>
+                      <span style={{ color: '#059669', fontWeight: 700, marginLeft: 8 }}>
+                        ₹{item.matched ? Number(settleOverrides[idx] ?? item.commission_amount).toLocaleString('en-IN') : '—'}
+                      </span>
+                      {!item.matched && (
+                        <input
+                          type="number"
+                          placeholder="Override ₹"
+                          value={settleOverrides[idx] ?? ''}
+                          onChange={e => setSettleOverrides(o => ({ ...o, [idx]: e.target.value }))}
+                          style={{ width: 90, marginLeft: 8, padding: '2px 6px', border: '1px solid #D1D5DB', borderRadius: 4, fontSize: 12 }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ borderTop: '1px solid #BBF7D0', marginTop: 8, paddingTop: 8, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Total Commission</span>
+                  <span style={{ color: '#059669' }}>₹{settlePreview.total_commission?.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>Settlement Notes (optional)</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={settleNotes}
+                  onChange={e => setSettleNotes(e.target.value)}
+                  placeholder="Internal notes…"
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => setSettleBooking(null)}>Cancel</button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  style={{ background: '#059669', color: '#fff', border: 'none' }}
+                  onClick={handleSettle}
+                  disabled={settleLoading}
+                >
+                  {settleLoading ? 'Settling…' : '🔒 Confirm Settlement'}
+                </button>
+              </div>
+            </>
+          )}
+        </Modal>
       )}
     </div>
   )
