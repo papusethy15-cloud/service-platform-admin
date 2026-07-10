@@ -562,7 +562,8 @@ function CreateCustomerModal({ onClose, onCreated }: { onClose: () => void; onCr
   const [err, setErr]         = useState('')
 
   const checkMobile = async () => {
-    if (!mobile || mobile.length < 10) { setErr('Enter a valid 10-digit mobile'); return }
+    if (!mobile || mobile.length < 10) { setErr('Enter a valid 10-digit mobile number'); return }
+    if (!/^[6-9]\d{9}$/.test(mobile)) { setErr('Mobile must start with 6, 7, 8, or 9 (Indian number)'); return }
     setChecking(true); setErr('')
     try {
       const res = await customersAPI.checkMobile(mobile)
@@ -599,8 +600,8 @@ function CreateCustomerModal({ onClose, onCreated }: { onClose: () => void; onCr
       <div style={{ marginBottom: step === 'form' && !found ? 0 : 20 }}>
         <label style={lbl}>Mobile Number *</label>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input className="input" type="tel" placeholder="10-digit mobile" maxLength={10}
-            value={mobile} onChange={e => { setMobile(e.target.value); setFound(null) }}
+          <input className="input" type="tel" placeholder="9XXXXXXXXX" maxLength={10}
+            value={mobile} onChange={e => { setMobile(e.target.value.replace(/\D/g, '').slice(0,10)); setFound(null) }}
             onKeyDown={e => e.key === 'Enter' && checkMobile()} />
           <button className="btn btn-primary" onClick={checkMobile} disabled={checking} style={{ whiteSpace: 'nowrap' }}>
             {checking ? <Spinner size="sm" /> : 'Check'}

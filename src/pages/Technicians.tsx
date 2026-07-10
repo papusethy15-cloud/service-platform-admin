@@ -186,7 +186,7 @@ export default function Technicians() {
     if (step === 1) {
       if (!form.name.trim())   { setErr('Full name is required'); return false }
       if (!form.mobile.trim()) { setErr('Mobile number is required'); return false }
-      if (form.mobile.length < 10) { setErr('Enter a valid 10-digit mobile number'); return false }
+      if (form.mobile.length < 10 || !/^[6-9]\d{9}$/.test(form.mobile)) { setErr('Enter a valid 10-digit Indian mobile number (starts with 6–9)'); return false }
     }
     if (step === 2) {
       if (!form.city.trim())    { setErr('City is required'); return false }
@@ -805,7 +805,15 @@ export default function Technicians() {
                 <div key={key}>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>{label}</label>
                   <input className="input" type={type} value={editForm[key] ?? ''}
-                    onChange={e => setEditForm((f: any) => ({ ...f, [key]: type === 'number' ? +e.target.value : e.target.value }))} />
+                    maxLength={type === 'tel' ? 10 : undefined}
+                    onChange={e => setEditForm((f: any) => ({...f,
+                      [key]: type === 'number' ? +e.target.value
+                           : type === 'tel' ? e.target.value.replace(/\D/g,'').slice(0,10)
+                           : e.target.value
+                    }))} />
+                  {type === 'tel' && editForm[key] && editForm[key].length > 0 && !/^[6-9]\d{9}$/.test(editForm[key]) && (
+                    <span style={{fontSize:11,color:'#DC2626',marginTop:2,display:'block'}}>Must be a valid 10-digit Indian mobile</span>
+                  )}
                 </div>
               ))}
               <div>
@@ -1150,8 +1158,8 @@ export default function Technicians() {
                     onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
                 </Field>
                 <Field label="Mobile Number *">
-                  <input className="input" type="tel" placeholder="10-digit mobile" value={form.mobile}
-                    onChange={e => setForm(f => ({ ...f, mobile: e.target.value }))} maxLength={10} />
+                  <input className="input" type="tel" placeholder="9XXXXXXXXX" value={form.mobile}
+                    onChange={e => setForm(f => ({ ...f, mobile: e.target.value.replace(/\D/g,'').slice(0,10) }))} maxLength={10} />
                 </Field>
                 <Field label="Email Address">
                   <input className="input" type="email" placeholder="email@example.com" value={form.email}
@@ -1159,7 +1167,7 @@ export default function Technicians() {
                 </Field>
                 <Field label="Alternate Mobile">
                   <input className="input" type="tel" placeholder="Optional" value={form.alternate_mobile}
-                    onChange={e => setForm(f => ({ ...f, alternate_mobile: e.target.value }))} maxLength={10} />
+                    onChange={e => setForm(f => ({ ...f, alternate_mobile: e.target.value.replace(/\D/g,'').slice(0,10) }))} maxLength={10} />
                 </Field>
                 <Field label="Date of Birth">
                   <input className="input" type="date" value={form.dob}
@@ -1187,8 +1195,8 @@ export default function Technicians() {
                     onChange={e => setForm(f => ({ ...f, emergency_contact_name: e.target.value }))} />
                 </Field>
                 <Field label="Contact Mobile">
-                  <input className="input" type="tel" placeholder="10-digit mobile" value={form.emergency_contact_mobile}
-                    onChange={e => setForm(f => ({ ...f, emergency_contact_mobile: e.target.value }))} maxLength={10} />
+                  <input className="input" type="tel" placeholder="9XXXXXXXXX" value={form.emergency_contact_mobile}
+                    onChange={e => setForm(f => ({ ...f, emergency_contact_mobile: e.target.value.replace(/\D/g,'').slice(0,10) }))} maxLength={10} />
                 </Field>
               </div>
 

@@ -325,7 +325,7 @@ function RegisterModal({ onClose, onSuccess }: { onClose:()=>void; onSuccess:(na
   const validate1 = () => {
     const e: Partial<BasicDetails> = {}
     if (!basic.name.trim()) e.name='Full name is required'
-    if (!/^\d{10}$/.test(basic.mobile.trim())) e.mobile='Enter a valid 10-digit mobile number'
+    if (!/^[6-9]\d{9}$/.test(basic.mobile.trim())) e.mobile='Enter a valid 10-digit Indian mobile number (starts with 6–9)'
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(basic.email.trim())) e.email='Enter a valid email address'
     if (basic.password.length < 6) e.password='Password must be at least 6 characters'
     if (basic.password !== basic.confirmPassword) e.confirmPassword='Passwords do not match'
@@ -457,6 +457,10 @@ function EditUserModal({ user, onClose, onSaved }: { user:any; onClose:()=>void;
   const handleSave = async () => {
     setSaving(true); setErr('')
     try {
+      if (form.mobile && !/^[6-9]\d{9}$/.test(form.mobile.trim())) {
+        setErr('Enter a valid 10-digit Indian mobile number (starts with 6–9)')
+        setSaving(false); return
+      }
       const payload: any = {
         name: form.name.trim(),
         email: form.email.trim() || undefined,
@@ -503,7 +507,12 @@ function EditUserModal({ user, onClose, onSaved }: { user:any; onClose:()=>void;
               <input style={iStyle()} value={form.name} onChange={e=>upd('name',e.target.value)} />
             </Field>
             <Field label="Mobile">
-              <input style={iStyle()} value={form.mobile} onChange={e=>upd('mobile',e.target.value)} />
+              <input style={iStyle()} type="tel" maxLength={10} placeholder="10-digit mobile"
+                value={form.mobile}
+                onChange={e=>upd('mobile',e.target.value.replace(/\D/g,'').slice(0,10))} />
+              {form.mobile && !/^[6-9]\d{9}$/.test(form.mobile) && (
+                <span style={{fontSize:11,color:'#DC2626',marginTop:2,display:'block'}}>Enter a valid 10-digit Indian mobile number</span>
+              )}
             </Field>
             <Field label="Email">
               <input style={iStyle()} type="email" value={form.email} onChange={e=>upd('email',e.target.value)} />
