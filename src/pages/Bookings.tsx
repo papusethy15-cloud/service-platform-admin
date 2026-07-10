@@ -491,7 +491,10 @@ export default function Bookings() {
                       <td>
                         {b.technician_name ? (
                           <>
-                            <div style={{ fontSize: 13, color: '#0F172A', display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 5,
+                              // Mute name color when dispatched but not yet accepted
+                              color: (!b.technician_confirmed && b.status === 'ASSIGNED') ? '#94A3B8' : '#0F172A',
+                            }}>
                               {b.technician_name}
                               {!b.technician_confirmed && b.status === 'ASSIGNED' && (
                                 <span title="Dispatched — awaiting technician acceptance" style={{
@@ -499,10 +502,12 @@ export default function Bookings() {
                                   background: '#FFF7ED', color: '#C2410C',
                                   border: '1px solid #FED7AA', borderRadius: 4,
                                   whiteSpace: 'nowrap',
-                                }}>⏳ Pending</span>
+                                }}>⏳ Awaiting Accept</span>
                               )}
                             </div>
-                            <div style={{ fontSize: 11, color: '#94A3B8' }}>{b.technician_mobile}</div>
+                            {b.technician_confirmed && (
+                              <div style={{ fontSize: 11, color: '#94A3B8' }}>{b.technician_mobile}</div>
+                            )}
                           </>
                         ) : (
                           <span style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>Unassigned</span>
