@@ -292,6 +292,7 @@ export default function BookingModal({
       if (selAppl) {
         payload.appliance_brand = selAppl.brand_name || selAppl.category || undefined
         payload.appliance_model = selAppl.model || undefined
+        payload.appliance_id = selAppl.id || undefined
       }
       const res = await bookingsAPI.create(payload)
       const b = res.data.data
@@ -780,23 +781,41 @@ export default function BookingModal({
                 (optional — technician can fill during service if unknown)
               </span>
             </label>
-            {appliances.length === 0 ? (
-              <div style={{ padding: '8px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, fontSize: 12, color: '#92400E' }}>
-                No appliances registered for this customer. Will be added by technician during service.
-              </div>
-            ) : (
-              <select className="input" value={form.appliance_id} onChange={e => set('appliance_id', e.target.value)}>
-                <option value="">— Skip / Not known yet —</option>
-                {appliances.map((a: any) => (
-                  <option key={a.id} value={a.id}>
-                    {a.category || a.category_name || 'Appliance'}
-                    {a.brand_name ? ` — ${a.brand_name}` : ''}
-                    {a.model ? ` (${a.model})` : ''}
-                    {a.serial_number ? ` · S/N: ${a.serial_number}` : ''}
-                  </option>
-                ))}
-              </select>
-            )}
+            {(() => {
+              // Filter appliances by selected service category
+              const _svcCatId = selSvc?.appliance_category_id || selSvc?.category_id || null
+              const catFiltered: any[] = _svcCatId
+                ? appliances.filter((a: any) =>
+                    !a.appliance_category_id ||
+                    a.appliance_category_id === _svcCatId
+                  )
+                : appliances
+              const displayAppl = catFiltered.length > 0 ? catFiltered : appliances
+              return appliances.length === 0 ? (
+                <div style={{ padding: '8px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, fontSize: 12, color: '#92400E' }}>
+                  No appliances registered for this customer. Will be added by technician during service.
+                </div>
+              ) : (
+                <>
+                  {catFiltered.length < appliances.length && selSvc && (
+                    <div style={{ fontSize: 11, color: '#1D4ED8', background: '#EFF6FF', padding: '4px 10px', borderRadius: 5, marginBottom: 6 }}>
+                      🔧 Showing {catFiltered.length} {selSvc.category_name || 'category'}-related appliance{catFiltered.length !== 1 ? 's' : ''} · {appliances.length - catFiltered.length} other{appliances.length - catFiltered.length !== 1 ? 's' : ''} hidden
+                    </div>
+                  )}
+                  <select className="input" value={form.appliance_id} onChange={e => set('appliance_id', e.target.value)}>
+                    <option value="">— Skip / Not known yet —</option>
+                    {displayAppl.map((a: any) => (
+                      <option key={a.id} value={a.id}>
+                        {a.category || a.category_name || 'Appliance'}
+                        {a.brand_name ? ` — ${a.brand_name}` : ''}
+                        {a.model ? ` (${a.model})` : ''}
+                        {a.serial_number ? ` · S/N: ${a.serial_number}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )
+            })()}
             {selAppl && (
               <div style={{ marginTop: 6, fontSize: 12, color: '#1B4FD8', background: '#EFF6FF', padding: '5px 10px', borderRadius: 6 }}>
                 Selected: <b>{selAppl.brand_name || '—'}</b> · {selAppl.model || '—'}
