@@ -127,6 +127,9 @@ export default function Bookings() {
   const [quotationBkg, setQuotationBkg] = useState<any>(null)
   const [workflowBkg, setWorkflowBkg] = useState<any>(null)
 
+  // ── Manual assign needed alerts ──────────────────────────────────────────
+  const [manualAlerts, setManualAlerts] = useState<Array<{ booking_id: string; booking_number: string; message: string; ts: number }>>([])
+
   // ── settle modal (from bookings detail) ──
   const [settleBooking, setSettleBooking] = useState<any>(null)
   const [settlePreview, setSettlePreview] = useState<any>(null)
@@ -193,7 +196,14 @@ export default function Bookings() {
     const unsub3 = subscribe('ASSIGNMENT_REJECTED',       () => fetchBookings())
     const unsub4 = subscribe('ASSIGNMENT_AUTO_CANCELLED', () => fetchBookings())
     const unsub5 = subscribe('BOOKING_STATUS_CHANGED',    () => fetchBookings())
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5() }
+    const unsub6 = subscribe('BOOKING_NEEDS_MANUAL_ASSIGN', (payload: any) => {
+      fetchBookings()
+      setManualAlerts(prev => [
+        { booking_id: payload?.booking_id || '', booking_number: payload?.booking_number || '', message: payload?.message || `Booking ${payload?.booking_number} needs manual assignment.`, ts: Date.now() },
+        ...prev.slice(0, 4),  // keep latest 5
+      ])
+    })
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6() }
   }, [subscribe, fetchBookings])
 
   // debounce search
@@ -290,6 +300,56 @@ export default function Bookings() {
           </button>
         }
       />
+
+      {/* ── Manual Assign Needed Alert Banners ───────────────────────────── */}
+      {manualAlerts.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          {manualAlerts.map((alert, i) => (
+            <div
+              key={`${alert.booking_id}-${alert.ts}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
+                background: '#FEF2F2', border: '2px solid #FECACA', borderRadius: 10,
+                padding: '10px 16px', marginBottom: 6,
+                animation: 'pulse 1s ease-in-out 3',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>🚨</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#B91C1C' }}>
+                    Manual Assignment Required — #{alert.booking_number}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{alert.message}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn-sm"
+                  style={{ background: '#1B4FD8', color: 'white', border: 'none', fontWeight: 700 }}
+                  onClick={() => {
+                    const bkg = bookings.find(b => b.id === alert.booking_id)
+                    if (bkg) openAssign(bkg)
+                    else fetchBookings().then(() => {
+                      const found = bookings.find(b => b.id === alert.booking_id)
+                      if (found) openAssign(found)
+                    })
+                    setManualAlerts(prev => prev.filter((_, idx) => idx !== i))
+                  }}
+                >
+                  👷 Assign Now
+                </button>
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setManualAlerts(prev => prev.filter((_, idx) => idx !== i))}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Mode Toggle ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>

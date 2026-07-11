@@ -276,6 +276,7 @@ export default function Technicians() {
         profile_image: d.profile_image || '',
         id_proof: d.id_proof || '',
         status: d.status,
+        auto_assign_eligible: d.auto_assign_eligible !== undefined ? d.auto_assign_eligible : true,
       })
     } catch { setEditForm({ ...t }) }
     // Store the editing tech ID
@@ -310,6 +311,7 @@ export default function Technicians() {
         identity_type: editForm.identity_type || undefined,
         identity_number: editForm.identity_number || undefined,
         status: editForm.status,
+        auto_assign_eligible: editForm.auto_assign_eligible !== undefined ? editForm.auto_assign_eligible : true,
       })
       if (editForm.profile_image) {
         await techniciansAPI.updateProfileImage(editTechId, editForm.profile_image)
@@ -835,6 +837,37 @@ export default function Technicians() {
                   <option value="SUSPENDED">Suspended</option>
                   <option value="ON_LEAVE">On Leave</option>
                 </select>
+              </div>
+              {/* ── Auto-assign eligible toggle ── */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+                  🤖 Auto-Assign Eligibility
+                </label>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  background: editForm.auto_assign_eligible !== false ? '#F0FDF4' : '#FEF2F2',
+                  border: `1px solid ${editForm.auto_assign_eligible !== false ? '#86EFAC' : '#FECACA'}`,
+                  borderRadius: 8, padding: '10px 14px',
+                }}>
+                  <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={editForm.auto_assign_eligible !== false}
+                      onChange={e => setEditForm((f: any) => ({ ...f, auto_assign_eligible: e.target.checked }))}
+                      style={{ width: 36, height: 20, cursor: 'pointer', accentColor: '#22C55E' }}
+                    />
+                  </label>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: editForm.auto_assign_eligible !== false ? '#15803D' : '#DC2626' }}>
+                      {editForm.auto_assign_eligible !== false ? '✅ Eligible for Auto-Assign' : '🚫 Excluded from Auto-Assign'}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                      {editForm.auto_assign_eligible !== false
+                        ? 'This technician will receive bookings via the auto-dispatch system.'
+                        : 'Admin/CCO must manually assign bookings to this technician.'}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}

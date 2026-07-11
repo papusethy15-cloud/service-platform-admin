@@ -324,6 +324,11 @@ export default function AssignTechnicianModal({ booking, onClose, onDone }: Prop
   const [cancellingAuto, setCancellingAuto] = useState(false)
   const [liveStatus, setLiveStatus] = useState<string>(booking?.status || '')
 
+  // Manual assign awaiting response
+  const [awaitingResponse, setAwaitingResponse] = useState(false)
+  const [responseDeadline, setResponseDeadline] = useState<string | null>(null)
+  const [countdown, setCountdown] = useState<number>(0)
+
   // ── WebSocket: real-time booking status ──────────────────────────────────
   // Only activate WS after a successful assignment (bookingId will be set)
   const [wsBookingId, setWsBookingId] = useState<string | null>(null)
@@ -358,11 +363,13 @@ export default function AssignTechnicianModal({ booking, onClose, onDone }: Prop
       if (p.status) setLiveStatus(p.status)
       if (p.status === 'ACCEPTED') {
         // Booking accepted — auto-close modal after brief delay
+        setAwaitingResponse(false)
         onDone()
         setTimeout(() => onClose(), 1800)
       }
       if (t === 'ASSIGNMENT_REJECTED') {
         // Technician rejected — reload candidates so admin can pick another
+        setAwaitingResponse(false)
         setSuccess('')
         setSuccessData(null)
         setSelectedTech('')
@@ -371,6 +378,19 @@ export default function AssignTechnicianModal({ booking, onClose, onDone }: Prop
       }
     }
   }, [lastEvent])
+
+  // ── Manual assign countdown timer ───────────────────────────────────────
+  useEffect(() => {
+    if (!awaitingResponse || !responseDeadline) { setCountdown(0); return }
+    const tick = () => {
+      const remaining = Math.max(0, Math.floor((new Date(responseDeadline).getTime() - Date.now()) / 1000))
+      setCountdown(remaining)
+      if (remaining === 0) setAwaitingResponse(false)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [awaitingResponse, responseDeadline])
 
   // ── load candidates when switching to manual tab ─────────────────────────
   useEffect(() => {
@@ -446,10 +466,13 @@ export default function AssignTechnicianModal({ booking, onClose, onDone }: Prop
       setSuccess(`Manually assigned to ${tech?.name || 'technician'}`)
       setLiveStatus('ASSIGNED')
       setWsBookingId(booking.id)   // activate WS to watch for accept/reject
+      // Activate awaiting response mode — blocks modal close, shows countdown
+      if (d?.response_deadline) {
+        setResponseDeadline(d.response_deadline)
+        setAwaitingResponse(true)
+      }
       // Refresh parent list immediately (shows ⏳ Pending badge)
       onDone()
-      // Close modal after brief success display
-      setTimeout(() => onClose(), 2000)
     } catch (ex: any) {
       setErr(errMsg(ex))
     } finally {
@@ -476,8 +499,11 @@ export default function AssignTechnicianModal({ booking, onClose, onDone }: Prop
     ? `Reassign Technician — ${booking.booking_number}`
     : `Assign Technician — ${booking.booking_number}`
 
+  // Block ✕ close while waiting for technician response
+  const handleClose = () => { if (!awaitingResponse) onClose() }
+
   return (
-    <Modal title={title} onClose={onClose} size="lg">
+    <Modal title={title} onClose={handleClose} size="lg">
 
       {/* ── Booking Info Strip ─────────────────────────────────────────── */}
       <div style={{
@@ -554,6 +580,65 @@ export default function AssignTechnicianModal({ booking, onClose, onDone }: Prop
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Awaiting Technician Response (Manual Assign) ───────────────────── */}
+      {awaitingResponse && (
+        <div style={{
+          background: '#FFF7ED', border: '2px solid #FCD34D',
+          borderRadius: 12, padding: '16px 18px', marginBottom: 14,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {/* Countdown circle */}
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%',
+              background: countdown > 60 ? '#DCFCE7' : countdown > 20 ? '#FEF3C7' : '#FEE2E2',
+              border: `3px solid ${countdown > 60 ? '#22C55E' : countdown > 20 ? '#F59E0B' : '#EF4444'}`,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <span style={{ fontSize: 18, fontWeight: 900, color: countdown > 60 ? '#15803D' : countdown > 20 ? '#B45309' : '#B91C1C', lineHeight: 1 }}>
+                {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, '0')}
+              </span>
+              <span style={{ fontSize: 9, color: '#94A3B8', marginTop: 1 }}>remain</span>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#92400E' }}>
+                ⏳ Waiting for Technician Response
+              </div>
+              <div style={{ fontSize: 12, color: '#64748B', marginTop: 3 }}>
+                {successData?.technician_name && <><b>{successData.technician_name}</b> has been notified. </>}
+                Job request sent — waiting for accept or reject.
+              </div>
+              <div style={{ fontSize: 11, color: countdown <= 20 ? '#DC2626' : '#94A3B8', marginTop: 4, fontWeight: countdown <= 20 ? 700 : 400 }}>
+                {countdown <= 0 ? '⚠ Time expired — technician did not respond.' : countdown <= 20 ? '⚠ Time running out!' : 'Modal will stay open until technician responds.'}
+              </div>
+            </div>
+          </div>
+          {/* Cancel manual assign button */}
+          <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
+              className="btn btn-sm"
+              style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', fontWeight: 700 }}
+              onClick={async () => {
+                try {
+                  await assignmentsAPI.cancelAuto(booking.id)
+                  setAwaitingResponse(false)
+                  setSuccess('')
+                  setSuccessData(null)
+                  setWsBookingId(null)
+                  setTab('manual')
+                  loadCandidates()
+                } catch (ex: any) { setErr(errMsg(ex)) }
+              }}
+            >
+              🚫 Cancel & Reassign
+            </button>
+            <span style={{ fontSize: 11, color: '#94A3B8' }}>
+              ✕ Close is disabled until technician responds
+            </span>
+          </div>
         </div>
       )}
 
