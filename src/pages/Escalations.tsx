@@ -79,7 +79,7 @@ export default function Escalations() {
           <>
             <table className="data-table">
               <thead><tr>
-                <th>Subject</th><th>Priority</th><th>Status</th><th>Created</th><th>Actions</th>
+                <th>Subject</th><th>Customer</th><th>Booking</th><th>Priority</th><th>Status</th><th>Created</th><th>Actions</th>
               </tr></thead>
               <tbody>
                 {escalations.length === 0
@@ -88,7 +88,22 @@ export default function Escalations() {
                     <tr key={e.id}>
                       <td>
                         <span style={{ fontWeight: 600, color: '#1B4FD8', cursor: 'pointer' }} onClick={() => setSelected(e)}>{e.subject}</span>
-                        <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>{e.description?.slice(0, 60)}...</div>
+                        <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>{e.description?.slice(0, 60)}{e.description?.length > 60 ? '...' : ''}</div>
+                      </td>
+                      <td>
+                        {e.customer_name ? (
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{e.customer_name}</div>
+                            {e.customer_mobile && <div style={{ fontSize: 12, color: '#94A3B8' }}>{e.customer_mobile}</div>}
+                          </div>
+                        ) : <span style={{ color: '#94A3B8' }}>—</span>}
+                      </td>
+                      <td>
+                        {e.booking_number ? (
+                          <span style={{ fontFamily: 'monospace', fontSize: 12, background: '#EFF6FF', color: '#1B4FD8', padding: '2px 8px', borderRadius: 6 }}>
+                            #{e.booking_number}
+                          </span>
+                        ) : <span style={{ color: '#94A3B8', fontSize: 12 }}>—</span>}
                       </td>
                       <td>
                         <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: PRIORITY_COLOR[e.priority] || '#F1F5F9', color: PRIORITY_TEXT[e.priority] || '#334155' }}>
@@ -126,14 +141,36 @@ export default function Escalations() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px' }}>
-              <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, marginBottom: 2 }}>BOOKING ID</div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>{selected.booking_id || '—'}</div>
+              <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, marginBottom: 4 }}>CUSTOMER</div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{selected.customer_name || '—'}</div>
+              {selected.customer_mobile && <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{selected.customer_mobile}</div>}
             </div>
+            <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, marginBottom: 4 }}>BOOKING</div>
+              {selected.booking_number
+                ? <span style={{ fontFamily: 'monospace', fontSize: 13, background: '#EFF6FF', color: '#1B4FD8', padding: '2px 8px', borderRadius: 6 }}>#{selected.booking_number}</span>
+                : <div style={{ fontWeight: 600, fontSize: 12, color: '#94A3B8' }}>{selected.booking_id || '—'}</div>
+              }
+            </div>
+          </div>
+          <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px' }}>
               <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, marginBottom: 2 }}>CREATED</div>
               <div style={{ fontWeight: 600, fontSize: 13 }}>{new Date(selected.created_at).toLocaleString('en-IN')}</div>
             </div>
+            {selected.resolved_at && (
+              <div style={{ background: '#F0FDF4', borderRadius: 8, padding: '10px 14px' }}>
+                <div style={{ fontSize: 11, color: '#166534', fontWeight: 600, marginBottom: 2 }}>RESOLVED AT</div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#166534' }}>{new Date(selected.resolved_at).toLocaleString('en-IN')}</div>
+              </div>
+            )}
           </div>
+          {selected.resolution_notes && (
+            <div style={{ marginTop: 10, background: '#F0FDF4', borderRadius: 8, padding: '10px 14px', border: '1px solid #BBF7D0' }}>
+              <div style={{ fontSize: 11, color: '#166534', fontWeight: 600, marginBottom: 4 }}>RESOLUTION NOTES</div>
+              <div style={{ fontSize: 13, color: '#334155' }}>{selected.resolution_notes}</div>
+            </div>
+          )}
         </Modal>
       )}
 
