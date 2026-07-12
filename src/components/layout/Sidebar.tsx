@@ -26,6 +26,7 @@ const nav = [
   { to: '/cash-collections',   icon: '💵', label: 'Cash Collections' },
   { to: '/commission-groups', icon: '📋', label: 'Commission Groups' },
   { to: '/wallet',      icon: '👛', label: 'Wallet' },
+  { to: '/withdrawals',  icon: '💸', label: 'Withdrawals' },
   { to: '/settlements', icon: '🏦', label: 'Settlements' },
   { section: 'PRODUCTS' },
   { to: '/amc',         icon: '🔄', label: 'AMC' },

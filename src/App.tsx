@@ -19,6 +19,7 @@ import Commissions    from '@/pages/Commissions'
 import CashCollections from '@/pages/CashCollections'
 import CommissionGroups from '@/pages/CommissionGroups'
 import Wallet         from '@/pages/Wallet'
+import Withdrawals    from '@/pages/Withdrawals'
 import Settlements    from '@/pages/Settlements'
 import Coupons        from '@/pages/Coupons'
 import Escalations    from '@/pages/Escalations'
@@ -65,6 +66,7 @@ export default function App() {
                 <Route path="/cash-collections" element={<CashCollections />} />
                 <Route path="/commission-groups" element={<CommissionGroups />} />
                 <Route path="/wallet"       element={<Wallet />} />
+                <Route path="/withdrawals"   element={<Withdrawals />} />
                 <Route path="/settlements"  element={<Settlements />} />
                 <Route path="/coupons"      element={<Coupons />} />
                 <Route path="/escalations"  element={<Escalations />} />
