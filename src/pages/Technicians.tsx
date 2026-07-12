@@ -32,6 +32,13 @@ interface Technician {
   id_proof?: string
   emergency_contact_name?: string
   emergency_contact_mobile?: string
+  payout_upi_id?: string
+  payout_bank_account?: string
+  payout_bank_ifsc?: string
+  payout_bank_name?: string
+  payout_account_holder?: string
+  payout_method_verified?: boolean
+  has_payout_method?: boolean
 }
 
 interface Service { id: string; name: string; category_name?: string }
@@ -112,7 +119,7 @@ export default function Technicians() {
   // Edit modal state
   const [showEdit, setShowEdit]         = useState(false)
   const [editForm, setEditForm]         = useState<any>({})
-  const [editTab, setEditTab]           = useState<'info'|'location'|'documents'|'availability'|'commissions'>('info')
+  const [editTab, setEditTab]           = useState<'info'|'location'|'documents'|'availability'|'commissions'|'payout'>('info')
   const [editSaving, setEditSaving]     = useState(false)
   const [editErr, setEditErr]           = useState('')
   const [editAreas, setEditAreas]       = useState<Area[]>([])
@@ -277,6 +284,12 @@ export default function Technicians() {
         id_proof: d.id_proof || '',
         status: d.status,
         auto_assign_eligible: d.auto_assign_eligible !== undefined ? d.auto_assign_eligible : true,
+        payout_upi_id: d.payout_upi_id || '',
+        payout_bank_account: d.payout_bank_account || '',
+        payout_bank_ifsc: d.payout_bank_ifsc || '',
+        payout_bank_name: d.payout_bank_name || '',
+        payout_account_holder: d.payout_account_holder || '',
+        payout_method_verified: d.payout_method_verified || false,
       })
     } catch { setEditForm({ ...t }) }
     // Store the editing tech ID
@@ -613,6 +626,46 @@ export default function Technicians() {
                   <InfoCard label="Contact Name"   value={selected.emergency_contact_name   || '—'} icon="👨‍👩‍👧" />
                   <InfoCard label="Contact Mobile" value={selected.emergency_contact_mobile || '—'} icon="📱" />
                 </div>
+
+                {/* Section: Payout Method */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, marginTop: 16 }}>Payout Method</div>
+                {(() => {
+                  const s = selected as any
+                  const hasUpi  = !!s.payout_upi_id
+                  const hasBank = !!s.payout_bank_account
+                  const verified = !!s.payout_method_verified
+                  if (!hasUpi && !hasBank) return (
+                    <div style={{ background: '#FEF9C3', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#92400E', marginBottom: 8 }}>
+                      ⚠️ No payout method saved. Technician cannot withdraw until one is added.{' '}
+                      <button style={{ color: '#1B4FD8', fontSize: 13, border: 'none', background: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                        onClick={() => openEdit(selected)}>Add now →</button>
+                    </div>
+                  )
+                  return (
+                    <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: '14px 16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
+                          {hasUpi ? '📱 UPI Payment' : '🏦 Bank Transfer'}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+                          background: verified ? '#DCFCE7' : '#FEF9C3',
+                          color: verified ? '#166534' : '#92400E' }}>
+                          {verified ? '✅ Verified' : '⚠️ Unverified'}
+                        </span>
+                      </div>
+                      {hasUpi && <div style={{ fontSize: 13, color: '#374151' }}><span style={{ fontWeight: 600 }}>UPI ID: </span>{s.payout_upi_id}</div>}
+                      {hasBank && (<>
+                        <div style={{ fontSize: 13, color: '#374151', marginBottom: 2 }}><span style={{ fontWeight: 600 }}>Account: </span>{s.payout_bank_account}</div>
+                        <div style={{ fontSize: 13, color: '#374151', marginBottom: 2 }}><span style={{ fontWeight: 600 }}>IFSC: </span>{s.payout_bank_ifsc || '—'}</div>
+                        {s.payout_bank_name && <div style={{ fontSize: 13, color: '#374151', marginBottom: 2 }}><span style={{ fontWeight: 600 }}>Bank: </span>{s.payout_bank_name}</div>}
+                        {s.payout_account_holder && <div style={{ fontSize: 13, color: '#374151' }}><span style={{ fontWeight: 600 }}>Holder: </span>{s.payout_account_holder}</div>}
+                      </>)}
+                      <div style={{ marginTop: 12 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(selected)}>✏️ Edit Payout Details</button>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )
           })()}
@@ -782,7 +835,7 @@ export default function Technicians() {
         <Modal title={`Edit — ${selected.name}`} onClose={() => setShowEdit(false)} size="xl">
           {/* Tab bar */}
           <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #E2E8F0', marginBottom: 20 }}>
-            {(['info','location','documents','availability','commissions'] as const).map(t => (
+            {(['info','location','documents','availability','commissions','payout'] as const).map(t => (
               <button key={t} onClick={() => setEditTab(t)}
                 style={{ padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: 13,
                   fontWeight: 600, background: 'none', textTransform: 'capitalize',
@@ -790,7 +843,7 @@ export default function Technicians() {
                   color: editTab === t ? '#1B4FD8' : '#64748B', marginBottom: -2 }}>
                 {t === 'info' ? '👤 Info' : t === 'location' ? '📍 Location'
                   : t === 'documents' ? '📄 Documents' : t === 'availability' ? '🗓️ Availability'
-                  : '💰 Commissions'}
+                  : t === 'payout' ? '💳 Payout' : '💰 Commissions'}
               </button>
             ))}
           </div>
@@ -1146,6 +1199,101 @@ export default function Technicians() {
               <button className="btn btn-secondary" onClick={() => setShowEdit(false)}>Cancel</button>
             </div>
           )}
+          {/* ── Payout tab ── */}
+          {editTab === 'payout' && (() => {
+            const hasUpi  = !!(editForm.payout_upi_id)
+            const hasBank = !!(editForm.payout_bank_account)
+            return (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20,
+                  background: editForm.payout_method_verified ? '#F0FDF4' : '#FEF9C3',
+                  border: `1px solid ${editForm.payout_method_verified ? '#86EFAC' : '#FDE68A'}`,
+                  borderRadius: 10, padding: '12px 16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1 }}>
+                    <input type="checkbox"
+                      checked={!!editForm.payout_method_verified}
+                      onChange={e => setEditForm((f: any) => ({ ...f, payout_method_verified: e.target.checked }))}
+                      style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#22C55E' }} />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: editForm.payout_method_verified ? '#15803D' : '#92400E' }}>
+                        {editForm.payout_method_verified ? '✅ Payout Method Verified' : '⚠️ Not Yet Verified'}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#64748B', marginTop: 1 }}>
+                        Tick after manually verifying the technician's payment details.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>UPI Payment</div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>UPI ID</label>
+                  <input className="input" placeholder="e.g. name@upi" value={editForm.payout_upi_id || ''}
+                    onChange={e => setEditForm((f: any) => ({ ...f, payout_upi_id: e.target.value }))} />
+                  {hasUpi && <div style={{ fontSize: 11, color: '#059669', marginTop: 3 }}>📱 UPI saved</div>}
+                </div>
+
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Bank Transfer</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ gridColumn: '1/-1' }}>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Account Number</label>
+                      <input className="input" placeholder="Bank account number" value={editForm.payout_bank_account || ''}
+                        onChange={e => setEditForm((f: any) => ({ ...f, payout_bank_account: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>IFSC Code</label>
+                      <input className="input" placeholder="e.g. SBIN0001234" value={editForm.payout_bank_ifsc || ''}
+                        onChange={e => setEditForm((f: any) => ({ ...f, payout_bank_ifsc: e.target.value.toUpperCase() }))} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Bank Name</label>
+                      <input className="input" placeholder="e.g. State Bank of India" value={editForm.payout_bank_name || ''}
+                        onChange={e => setEditForm((f: any) => ({ ...f, payout_bank_name: e.target.value }))} />
+                    </div>
+                    <div style={{ gridColumn: '1/-1' }}>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Account Holder Name</label>
+                      <input className="input" placeholder="Name as on bank account" value={editForm.payout_account_holder || ''}
+                        onChange={e => setEditForm((f: any) => ({ ...f, payout_account_holder: e.target.value }))} />
+                    </div>
+                  </div>
+                  {hasBank && <div style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>🏦 Bank details saved</div>}
+                </div>
+
+                {!hasUpi && !hasBank && (
+                  <div style={{ background: '#FEF9C3', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 14px',
+                    fontSize: 13, color: '#92400E', marginBottom: 16 }}>
+                    ⚠️ No payout method on record. Technician cannot withdraw until one is added.
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 20, paddingTop: 16, borderTop: '1px solid #E2E8F0' }}>
+                  <button className="btn btn-primary" onClick={async () => {
+                    setEditSaving(true); setEditErr('')
+                    try {
+                      await techniciansAPI.update(editTechId, {
+                        payout_upi_id: editForm.payout_upi_id || null,
+                        payout_bank_account: editForm.payout_bank_account || null,
+                        payout_bank_ifsc: editForm.payout_bank_ifsc || null,
+                        payout_bank_name: editForm.payout_bank_name || null,
+                        payout_account_holder: editForm.payout_account_holder || null,
+                        payout_method_verified: editForm.payout_method_verified,
+                      })
+                      toast.success('Payout Updated', 'Payment details saved successfully.')
+                      setShowEdit(false); fetchTechs()
+                      if (selected?.id === editTechId) {
+                        try { const r = await techniciansAPI.get(editTechId); setSelected(r.data.data) } catch {}
+                      }
+                    } catch (e: any) { setEditErr(e.response?.data?.detail || 'Save failed') }
+                    finally { setEditSaving(false) }
+                  }} disabled={editSaving}>
+                    {editSaving ? <Spinner size="sm" /> : '💾 Save Payout Details'}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => setShowEdit(false)}>Cancel</button>
+                </div>
+              </div>
+            )
+          })()}
         </Modal>
       )}
 

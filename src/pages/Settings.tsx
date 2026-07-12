@@ -35,6 +35,11 @@ const FIELDS: Record<TabKey, FieldDef[]> = {
     { key: 'payment_gateway',     label: 'Payment Gateway',     type: 'text',     placeholder: 'razorpay' },
     { key: 'upi_enabled',         label: 'UPI Enabled',         type: 'text',     placeholder: 'true' },
     { key: 'cash_enabled',        label: 'Cash Enabled',        type: 'text',     placeholder: 'true' },
+    { key: 'razorpay_payout_enabled',    label: 'Razorpay Payout Enabled',  type: 'text',     placeholder: 'false', hint: 'Set to true to allow RazorpayX automated payouts to technicians.' },
+    { key: 'razorpay_x_key_id',          label: 'RazorpayX Key ID',         type: 'text',     placeholder: 'rzp_live_...' },
+    { key: 'razorpay_x_key_secret',      label: 'RazorpayX Key Secret',     type: 'password', placeholder: '••••••••', hint: 'Stored encrypted. Enter new value to change.' },
+    { key: 'razorpay_x_account_number',  label: 'RazorpayX Account Number', type: 'text',     placeholder: 'Your linked business account number', hint: 'The source bank account registered with RazorpayX.' },
+    { key: 'withdrawal_payout_mode',     label: 'Withdrawal Payout Mode',   type: 'text',     placeholder: 'manual', hint: 'manual = admin transfers manually. razorpay = auto-payout via RazorpayX.' },
   ],
   Notification: [
     { key: 'sms_api_key',       label: 'SMS API Key',         type: 'password', hint: 'Enter new value to update.' },
