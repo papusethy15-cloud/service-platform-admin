@@ -782,6 +782,19 @@ export default function Bookings() {
                   </div>
                 ))}
               </div>
+              {/* Full address row */}
+              {(detail.address_str || detail.address_line) && (
+                <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, marginBottom: 3 }}>
+                    📍 Service Address {detail.address_label ? `· ${detail.address_label}` : ''}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#0F172A' }}>
+                    {detail.address_str && detail.address_str !== '—'
+                      ? detail.address_str
+                      : detail.address_line || '—'}
+                  </div>
+                </div>
+              )}
 
               {/* Amount breakdown */}
               <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'center' }}>

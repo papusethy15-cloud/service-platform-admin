@@ -47,7 +47,16 @@ export const analyticsAPI = {
 export const bookingsAPI = {
   list:       (params?: any)                     => api.get('/bookings', { params }),
   get:        (id: string)                       => api.get(`/bookings/${id}`),
-  create:     (d: any)                           => api.post('/bookings', d),
+  create:     async (d: any) => {
+    const res = await api.post('/bookings', d);
+    // POST /bookings returns only {id, booking_number, status} — re-fetch full detail
+    // so service_name, address_str, etc. are available in the UI immediately.
+    try {
+      const id = res.data?.data?.id;
+      if (id) return await api.get(`/bookings/${id}`);
+    } catch { /* fallback to creation response */ }
+    return res;
+  },
   update:     (id: string, d: any)               => api.put(`/bookings/${id}`, d),
   cancel:     (id: string, reason: string)       => api.post(`/bookings/${id}/cancel`, { reason }),
   reschedule: (id: string, d: any)               => api.post(`/bookings/${id}/reschedule`, d),
