@@ -121,6 +121,7 @@ export default function BookingModal({
   const [selSvc,     setSelSvc]     = useState<any>(null)
   const [cityPrices, setCityPrices] = useState<any[]>([])
   const [loadPrice,  setLoadPrice]  = useState(false)
+  const [cities,     setCities]     = useState<any[]>([])
 
   const [form, setForm] = useState({
     domain_id: '', service_id: '', address_id: '',
@@ -179,6 +180,14 @@ export default function BookingModal({
   }, [])
 
   // ── load services when domain changes ──
+  // Load cities list on mount for address form dropdown
+  useEffect(() => {
+    api.get('/cities?limit=100').then((r: any) => {
+      const items = r.data?.data?.items ?? r.data?.data ?? []
+      setCities(Array.isArray(items) ? items : [])
+    }).catch(() => {})
+  }, [])
+
   useEffect(() => {
     if (!form.domain_id) { setAllSvcs([]); setSelSvc(null); setSvcSearch(''); return }
     setLoadSvc(true)
@@ -287,6 +296,7 @@ export default function BookingModal({
         source:          'CALL_CENTER',
         domain_id:       form.domain_id || undefined,
         city_id:         cityPrice?.city_id || undefined,
+        city:            cityPrice?.city_name || (selAddr as any)?.city || undefined,
         force_duplicate: forceDuplicate,
       }
       if (selAppl) {
@@ -536,8 +546,20 @@ export default function BookingModal({
                 </div>
                 <div>
                   <label style={lbl}>City *</label>
-                  <input className="input" value={addrForm.city}
-                    onChange={e => setAddrField('city', e.target.value)} />
+                  {cities.length > 0 ? (
+                    <select className="input" value={addrForm.city}
+                      onChange={e => {
+                        const city = cities.find((c: any) => c.name === e.target.value)
+                        setAddrField('city', e.target.value)
+                        if (city) setAddrField('state', city.state ?? '')
+                      }}>
+                      <option value="">Select city</option>
+                      {cities.map((c: any) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input" value={addrForm.city}
+                      onChange={e => setAddrField('city', e.target.value)} />
+                  )}
                 </div>
                 <div>
                   <label style={lbl}>State *</label>
