@@ -21,7 +21,7 @@
  */
 import { useEffect, useState } from 'react'
 import {
-  customersAPI, bookingsAPI, domainsAPI, servicePricingAPI,
+  api, customersAPI, bookingsAPI, domainsAPI, servicePricingAPI,
 } from '@/services/api'
 import Modal from '@/components/ui/Modal'
 import Spinner from '@/components/ui/Spinner'
