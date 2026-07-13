@@ -150,10 +150,16 @@ export default function Bookings() {
   }
 
   const handleSettle = async () => {
-    if (!settleBooking) return
+    if (!settleBooking || !settlePreview) return
     setSettleLoading(true); setSettleErr('')
     try {
-      const overrideList = Object.entries(settleOverrides).map(([idx, amt]) => ({ item_index: Number(idx), override_amount: Number(amt) }))
+      // Build overrides: include ALL items — use manually entered value if set, else backend value
+      const lineItems: any[] = settlePreview.line_items || []
+      const overrideList = lineItems.map((item: any, idx: number) => {
+        const manualVal = settleOverrides[idx]
+        const amt = manualVal !== undefined ? parseFloat(manualVal) || 0 : (item.commission_amount ?? 0)
+        return { item_index: idx, override_amount: amt }
+      })
       await bookingsAPI.settleBooking(settleBooking.id, { overrides: overrideList, notes: settleNotes || undefined })
       setSettleBooking(null); fetchBookings()
     } catch (ex: any) {
@@ -1072,66 +1078,155 @@ export default function Bookings() {
       {/* ══════════════════════════════════════════════════════════════
           SETTLE MODAL
       ══════════════════════════════════════════════════════════════ */}
-      {settleBooking && (
-        <Modal title={`Settle & Close — #${settleBooking.booking_number}`} onClose={() => setSettleBooking(null)} size="md">
-          {settleErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 12 }}>{settleErr}</div>}
-          {!settlePreview && !settleErr && (
-            <div style={{ textAlign: 'center', padding: 40 }}><Spinner /></div>
-          )}
-          {settlePreview && (
-            <>
-              <div style={{ background: '#F0FDF4', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
-                <b>Commission breakdown</b>
-                <div style={{ marginTop: 8 }}>
-                  {(settlePreview.line_items || []).map((item: any, idx: number) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ color: '#374151', flex: 1 }}>{item.name} ({item.type})</span>
-                      <span style={{ color: '#059669', fontWeight: 700, marginLeft: 8 }}>
-                        ₹{item.matched ? Number(settleOverrides[idx] ?? item.commission_amount).toLocaleString('en-IN') : '—'}
-                      </span>
-                      {!item.matched && (
-                        <input
-                          type="number"
-                          placeholder="Override ₹"
-                          value={settleOverrides[idx] ?? ''}
-                          onChange={e => setSettleOverrides(o => ({ ...o, [idx]: e.target.value }))}
-                          style={{ width: 90, marginLeft: 8, padding: '2px 6px', border: '1px solid #D1D5DB', borderRadius: 4, fontSize: 12 }}
-                        />
-                      )}
+      {settleBooking && (() => {
+        // Compute live total from overrides + original amounts
+        const lineItems: any[] = settlePreview?.line_items || []
+        const liveTotal = lineItems.reduce((sum: number, item: any, idx: number) => {
+          const overrideVal = settleOverrides[idx]
+          const amt = overrideVal !== undefined ? (parseFloat(overrideVal) || 0) : (item.commission_amount ?? 0)
+          return sum + amt
+        }, 0)
+
+        return (
+          <Modal title={`Settle & Close — #${settleBooking.booking_number}`} onClose={() => setSettleBooking(null)} size="lg">
+            {settleErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 12 }}>{settleErr}</div>}
+            {!settlePreview && !settleErr && (
+              <div style={{ textAlign: 'center', padding: 40 }}><Spinner /></div>
+            )}
+            {settlePreview && (
+              <>
+                {/* Group / tech info */}
+                <div style={{ background: '#EFF6FF', borderRadius: 8, padding: '8px 14px', marginBottom: 14, fontSize: 12, display: 'flex', gap: 16 }}>
+                  <div>👤 <b>{settlePreview.technician?.name || '—'}</b></div>
+                  <div>💼 Group: <b>{settlePreview.commission_group?.name || <span style={{ color: '#EF4444' }}>None assigned</span>}</b></div>
+                </div>
+
+                {/* Line items table */}
+                <div style={{ background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0', overflow: 'hidden', marginBottom: 14 }}>
+                  {/* Header */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 110px', gap: 0,
+                    background: '#F1F5F9', padding: '8px 12px', fontSize: 11, fontWeight: 700,
+                    color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <div>Item</div>
+                    <div style={{ textAlign: 'right' }}>Qty</div>
+                    <div style={{ textAlign: 'right' }}>Unit ₹</div>
+                    <div style={{ textAlign: 'right' }}>Total ₹</div>
+                    <div style={{ textAlign: 'right' }}>Commission ₹</div>
+                  </div>
+
+                  {lineItems.length === 0 && (
+                    <div style={{ padding: '20px 12px', color: '#94A3B8', fontSize: 13, textAlign: 'center' }}>
+                      No invoiced services or parts found for this booking.
                     </div>
-                  ))}
+                  )}
+
+                  {lineItems.map((item: any, idx: number) => {
+                    const isService = item.type === 'SERVICE'
+                    const isMatched = item.matched
+                    const overrideVal = settleOverrides[idx]
+                    const displayAmt = overrideVal !== undefined ? overrideVal : (item.commission_amount ?? '')
+
+                    return (
+                      <div key={idx} style={{
+                        display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 110px',
+                        padding: '10px 12px', borderTop: '1px solid #E2E8F0',
+                        background: idx % 2 === 0 ? 'white' : '#FAFAFA',
+                        alignItems: 'center', gap: 0
+                      }}>
+                        {/* Name + badges */}
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0F172A', marginBottom: 2 }}>
+                            {isService ? '🔧' : '🔩'} {item.name}
+                          </div>
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 10, background: isService ? '#DBEAFE' : '#FEF3C7',
+                              color: isService ? '#1D4ED8' : '#92400E', padding: '1px 6px', borderRadius: 10, fontWeight: 600 }}>
+                              {item.type}
+                            </span>
+                            {!isService && item.part_source && (
+                              <span style={{ fontSize: 10, background: item.part_source === 'OFFICE_STOCK' ? '#F0FDF4' : '#FFF7ED',
+                                color: item.part_source === 'OFFICE_STOCK' ? '#166534' : '#C2410C',
+                                padding: '1px 6px', borderRadius: 10, fontWeight: 600 }}>
+                                {item.part_source === 'OFFICE_STOCK' ? '🏢 Office' : '🛒 Market'}
+                              </span>
+                            )}
+                            {isMatched ? (
+                              <span style={{ fontSize: 10, background: '#DCFCE7', color: '#166534', padding: '1px 6px', borderRadius: 10, fontWeight: 600 }}>
+                                ✓ {item.rate}{item.commission_type === 'PERCENTAGE' ? '%' : '₹ flat'}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 10, background: '#FEE2E2', color: '#DC2626', padding: '1px 6px', borderRadius: 10, fontWeight: 600 }}>
+                                ⚠ No rule — set manually
+                              </span>
+                            )}
+                            {!isService && item.part_source === 'OFFICE_STOCK' && isMatched && item.commission_type === 'PERCENTAGE' && (
+                              <span style={{ fontSize: 10, color: '#64748B' }}>from profit</span>
+                            )}
+                            {!isService && item.part_source === 'MARKET_PURCHASE' && isMatched && item.commission_type === 'PERCENTAGE' && (
+                              <span style={{ fontSize: 10, color: '#64748B' }}>from selling ₹</span>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', fontSize: 13, color: '#374151' }}>{item.quantity}</div>
+                        <div style={{ textAlign: 'right', fontSize: 13, color: '#374151' }}>₹{item.unit_price?.toFixed(2)}</div>
+                        <div style={{ textAlign: 'right', fontSize: 13, fontWeight: 600, color: '#0F172A' }}>₹{item.total_price?.toFixed(2)}</div>
+                        {/* Editable commission — all items editable */}
+                        <div style={{ textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={displayAmt}
+                            onChange={e => setSettleOverrides(o => ({ ...o, [idx]: e.target.value }))}
+                            placeholder={isMatched ? item.commission_amount?.toFixed(2) : '0.00'}
+                            style={{
+                              width: '100%', padding: '3px 7px', border: '1px solid #D1D5DB', borderRadius: 5,
+                              fontSize: 13, fontWeight: 700, textAlign: 'right',
+                              background: overrideVal !== undefined ? '#FFFBEB' : (isMatched ? '#F0FDF4' : '#FEF2F2'),
+                              color: '#059669', outline: 'none'
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* Total row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 110px',
+                    padding: '10px 12px', borderTop: '2px solid #E2E8F0', background: '#F0FDF4',
+                    fontWeight: 700, fontSize: 14 }}>
+                    <div style={{ gridColumn: '1/5', color: '#374151' }}>Total Commission</div>
+                    <div style={{ textAlign: 'right', color: '#059669' }}>₹{liveTotal.toFixed(2)}</div>
+                  </div>
                 </div>
-                <div style={{ borderTop: '1px solid #BBF7D0', marginTop: 8, paddingTop: 8, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Total Commission</span>
-                  <span style={{ color: '#059669' }}>₹{settlePreview.total_commission?.toLocaleString('en-IN')}</span>
+
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>Settlement Notes (optional)</label>
+                  <textarea
+                    className="input"
+                    rows={2}
+                    value={settleNotes}
+                    onChange={e => setSettleNotes(e.target.value)}
+                    placeholder="Internal notes…"
+                    style={{ resize: 'vertical' }}
+                  />
                 </div>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>Settlement Notes (optional)</label>
-                <textarea
-                  className="input"
-                  rows={2}
-                  value={settleNotes}
-                  onChange={e => setSettleNotes(e.target.value)}
-                  placeholder="Internal notes…"
-                  style={{ resize: 'vertical' }}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => setSettleBooking(null)}>Cancel</button>
-                <button
-                  className="btn btn-primary btn-sm"
-                  style={{ background: '#059669', color: '#fff', border: 'none' }}
-                  onClick={handleSettle}
-                  disabled={settleLoading}
-                >
-                  {settleLoading ? 'Settling…' : '🔒 Confirm Settlement'}
-                </button>
-              </div>
-            </>
-          )}
-        </Modal>
-      )}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setSettleBooking(null)}>Cancel</button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    style={{ background: '#059669', color: '#fff', border: 'none' }}
+                    onClick={handleSettle}
+                    disabled={settleLoading}
+                  >
+                    {settleLoading ? 'Settling…' : `🔒 Confirm — ₹${liveTotal.toFixed(2)} Commission`}
+                  </button>
+                </div>
+              </>
+            )}
+          </Modal>
+        )
+      })()}
     </div>
   )
 }

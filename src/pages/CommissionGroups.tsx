@@ -7,7 +7,7 @@ import Spinner from '@/components/ui/Spinner'
 
 interface Service  { id: string; name: string; category_name?: string; base_price?: number }
 interface Domain   { id: string; name: string }
-interface GroupRule { id?: string; service_id: string; domain_id: string|null; commission_type: string; rate: number }
+interface GroupRule { id?: string; service_id: string; service_name?: string; base_price?: number; domain_id: string|null; domain_name?: string; commission_type: string; rate: number }
 interface Group {
   id: string; name: string; description?: string; is_active: boolean
   technician_count: number; rules: GroupRule[]
@@ -32,8 +32,8 @@ function Label({ children }: { children: React.ReactNode }) {
 
 // ── Service search combobox ──────────────────────────────────────────────────
 function ServiceSearchBox({
-  value, onChange, placeholder
-}: { value: Service|null; onChange: (s: Service|null) => void; placeholder?: string }) {
+  value, onChange, placeholder, existingServiceIds = []
+}: { value: Service|null; onChange: (s: Service|null) => void; placeholder?: string; existingServiceIds?: string[] }) {
   const [query, setQuery]       = useState(value?.name || '')
   const [results, setResults]   = useState<Service[]>([])
   const [open, setOpen]         = useState(false)
@@ -104,18 +104,34 @@ function ServiceSearchBox({
         <div style={{ position: 'absolute', zIndex: 100, top: '100%', left: 0, right: 0, background: 'white',
           border: '1px solid #E2E8F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
           maxHeight: 220, overflowY: 'auto', marginTop: 2 }}>
-          {results.map(s => (
-            <div key={s.id} onClick={() => select(s)}
-              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #F8FAFC',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#EFF6FF')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
-              <span style={{ color: '#0F172A', fontWeight: 500 }}>{s.name}</span>
-              {s.base_price !== undefined && (
-                <span style={{ color: '#059669', fontSize: 12, fontWeight: 600 }}>₹{s.base_price}</span>
-              )}
-            </div>
-          ))}
+          {results.map(s => {
+            const alreadyAdded = existingServiceIds.includes(s.id) && s.id !== value?.id
+            return (
+              <div key={s.id}
+                onClick={() => { if (!alreadyAdded) select(s) }}
+                style={{ padding: '9px 14px', cursor: alreadyAdded ? 'not-allowed' : 'pointer', fontSize: 13,
+                  borderBottom: '1px solid #F8FAFC', display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'center', opacity: alreadyAdded ? 0.55 : 1,
+                  background: alreadyAdded ? '#F9FAFB' : 'white' }}
+                onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = '#EFF6FF' }}
+                onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = 'white' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#0F172A', fontWeight: 500 }}>{s.name}</span>
+                  {alreadyAdded && (
+                    <span style={{ fontSize: 10, background: '#FEF3C7', color: '#92400E', fontWeight: 700,
+                      padding: '1px 7px', borderRadius: 10, border: '1px solid #FCD34D', flexShrink: 0 }}>
+                      ✓ In Group
+                    </span>
+                  )}
+                </div>
+                {s.base_price !== undefined && (
+                  <span style={{ color: alreadyAdded ? '#94A3B8' : '#059669', fontSize: 12, fontWeight: 600, marginLeft: 8, flexShrink: 0 }}>
+                    ₹{s.base_price}
+                  </span>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
       {open && !loading && results.length === 0 && query.length >= 1 && (
@@ -327,7 +343,7 @@ function InventorySearchBox({
             </div>
           </div>
           <div style={{ marginTop: 5, fontSize: 11, color: '#78716C' }}>
-            ℹ️ For OFFICE_STOCK: commission should be ≤ profit. Market purchase cost goes to technician, so commission can be from full selling price.
+            ℹ️ Office Stock: commission is % of profit (selling − cost). Market Purchase: technician keeps their cost; commission is % of selling price.
           </div>
         </div>
       )}
@@ -421,9 +437,13 @@ export default function CommissionGroups() {
     if (!form.name.trim()) { setErr('Group name is required'); return }
     const validRules = rules.filter(r => r.service_id)
     if (validRules.length === 0) { setErr('At least one service rule with a selected service is required'); return }
+    // Duplicate service check
+    const svcIds = validRules.map(r => r.service_id)
+    const dupId = svcIds.find((id, i) => svcIds.indexOf(id) !== i)
+    if (dupId) { setErr('Duplicate service detected — each service can only appear once per group'); return }
     const zeroRate = validRules.find(r => r.rate <= 0)
     if (zeroRate) { setErr('All rules must have a commission rate greater than 0'); return }
-    if (rules.filter(r => r.commission_type === 'PERCENTAGE').some(r => r.rate > 100)) {
+    if (validRules.filter(r => r.commission_type === 'PERCENTAGE').some(r => r.rate > 100)) {
       setErr('Percentage commission cannot exceed 100%'); return
     }
     setSaving(true); setErr('')
@@ -464,17 +484,28 @@ export default function CommissionGroups() {
   const validatePartRule = (): string => {
     if (partRuleForm.rate <= 0) return 'Commission rate must be greater than 0'
     if (partRuleForm.commission_type === 'PERCENTAGE' && partRuleForm.rate > 100) return 'Percentage cannot exceed 100%'
-    // If office stock + percentage + we have selected item — warn if > profit margin
+    // If office stock + percentage + we have a selected item preview — check commission doesn't exceed 100% of profit
     if (
       selectedInventoryItem &&
       partRuleForm.commission_type === 'PERCENTAGE' &&
       (partRuleForm.part_source_filter === '' || partRuleForm.part_source_filter === 'OFFICE_STOCK')
     ) {
-      const profitPct = selectedInventoryItem.selling_price > 0
-        ? (selectedInventoryItem.selling_price - selectedInventoryItem.cost_price) / selectedInventoryItem.selling_price * 100
-        : 0
-      if (partRuleForm.rate > profitPct && profitPct > 0) {
-        return `⚠️ Commission rate (${partRuleForm.rate}%) exceeds profit margin (${profitPct.toFixed(1)}%) for office stock parts. Commission should come from profit only.`
+      const profit = selectedInventoryItem.selling_price - selectedInventoryItem.cost_price
+      if (profit <= 0) {
+        return `⚠️ This item has no profit margin (cost ≥ selling price). Cannot set a profit-based commission.`
+      }
+      // For office stock, 100% rate means "all of the profit". Warn if rate would give more than profit.
+      // Since base = profit, rate % of profit — 100% is the max meaningful value (already capped by input).
+      // But if user entered FLAT and value > profit, warn too:
+    }
+    if (
+      selectedInventoryItem &&
+      partRuleForm.commission_type === 'FLAT' &&
+      partRuleForm.part_source_filter === 'OFFICE_STOCK'
+    ) {
+      const profit = selectedInventoryItem.selling_price - selectedInventoryItem.cost_price
+      if (partRuleForm.rate > profit && profit > 0) {
+        return `⚠️ Flat commission ₹${partRuleForm.rate} exceeds profit ₹${profit.toFixed(2)} on this item. Reduce the flat amount.`
       }
     }
     return ''
@@ -617,7 +648,7 @@ export default function CommissionGroups() {
                 ) : g.rules.slice(0, 4).map((r, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     fontSize: 13, padding: '5px 0', borderBottom: '1px solid #F8FAFC' }}>
-                    <span style={{ color: '#374151', flex: 1 }}>🔧 {r.service_id ? '(service)' : '—'}</span>
+                    <span style={{ color: '#374151', flex: 1 }}>🔧 {r.service_name || r.service_id || '—'}</span>
                     {r.domain_id && <span style={{ fontSize: 11, color: '#7C3AED', background: '#F5F3FF',
                       padding: '1px 6px', borderRadius: 10, marginRight: 6 }}>Domain</span>}
                     <span style={{ fontWeight: 700, color: '#059669', flexShrink: 0 }}>
@@ -692,6 +723,10 @@ export default function CommissionGroups() {
                     value={ruleServices[i] || null}
                     onChange={svc => setRuleService(i, svc)}
                     placeholder="Type to search services…"
+                    existingServiceIds={rules
+                      .filter((_, idx) => idx !== i)
+                      .map(r => r.service_id)
+                      .filter(Boolean)}
                   />
                 </div>
                 <div>
@@ -852,11 +887,19 @@ export default function CommissionGroups() {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {(detail.rules || []).map((r: any, i: number) => (
                       <div key={i} style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8,
-                        padding: '6px 12px', fontSize: 13 }}>
-                        <span style={{ color: '#374151' }}>🔧 {r.service_id || '—'}</span>
-                        {r.domain_id && <span style={{ color: '#7C3AED', marginLeft: 6, fontSize: 11 }}>Domain-specific</span>}
-                        <span style={{ fontWeight: 700, color: '#059669', marginLeft: 8 }}>
-                          {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate}`}
+                        padding: '8px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ color: '#374151', fontWeight: 600 }}>🔧 {r.service_name || r.service_id || '—'}</span>
+                        {r.base_price !== undefined && (
+                          <span style={{ fontSize: 11, color: '#64748B' }}>Base ₹{r.base_price}</span>
+                        )}
+                        {r.domain_id && (
+                          <span style={{ fontSize: 11, background: '#F5F3FF', color: '#7C3AED',
+                            padding: '1px 7px', borderRadius: 10, border: '1px solid #DDD6FE', fontWeight: 600 }}>
+                            🌐 {r.domain_name || 'Domain-specific'}
+                          </span>
+                        )}
+                        <span style={{ fontWeight: 700, color: '#059669', marginLeft: 'auto' }}>
+                          {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate} flat`}
                         </span>
                       </div>
                     ))}
@@ -967,9 +1010,25 @@ export default function CommissionGroups() {
                         <Label>Commission Type</Label>
                         <select className="input" value={partRuleForm.commission_type}
                           onChange={e => setPartRuleForm(f => ({ ...f, commission_type: e.target.value }))}>
-                          <option value="PERCENTAGE">% Percentage of selling price</option>
-                          <option value="FLAT">₹ Flat per unit</option>
+                          <option value="PERCENTAGE">
+                            {partRuleForm.part_source_filter === 'OFFICE_STOCK'
+                              ? '% Percentage of profit (selling − cost)'
+                              : partRuleForm.part_source_filter === 'MARKET_PURCHASE'
+                              ? '% Percentage of selling price (tech keeps cost)'
+                              : '% Percentage (of profit for office stock / selling price for market)'}
+                          </option>
+                          <option value="FLAT">₹ Flat amount per unit</option>
                         </select>
+                        <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>
+                          {partRuleForm.commission_type === 'PERCENTAGE' && partRuleForm.part_source_filter === 'OFFICE_STOCK' &&
+                            '🏢 Office stock: commission is % of profit (selling price − cost price). Never exceeds profit.'}
+                          {partRuleForm.commission_type === 'PERCENTAGE' && partRuleForm.part_source_filter === 'MARKET_PURCHASE' &&
+                            '🛒 Market purchase: technician keeps their cost; commission is % of selling price.'}
+                          {partRuleForm.commission_type === 'PERCENTAGE' && !partRuleForm.part_source_filter &&
+                            '📋 Both sources: for office stock, base = profit; for market purchase, base = selling price.'}
+                          {partRuleForm.commission_type === 'FLAT' &&
+                            '₹ Fixed amount per unit, regardless of source or price.'}
+                        </div>
                       </div>
                       <div>
                         <Label>{partRuleForm.commission_type === 'PERCENTAGE' ? 'Rate (%)' : 'Amount (₹) per unit'}</Label>
@@ -983,14 +1042,36 @@ export default function CommissionGroups() {
                             setPartRuleForm(f => ({ ...f, rate: v }))
                           }} />
                         {/* Live commission preview if item selected */}
-                        {selectedInventoryItem && partRuleForm.rate > 0 && (
-                          <div style={{ fontSize: 11, color: '#059669', marginTop: 3, fontWeight: 600 }}>
-                            Preview: ₹{partRuleForm.commission_type === 'PERCENTAGE'
-                              ? (selectedInventoryItem.selling_price * partRuleForm.rate / 100).toFixed(2)
-                              : partRuleForm.rate
-                            } per unit on this item
-                          </div>
-                        )}
+                        {selectedInventoryItem && partRuleForm.rate > 0 && (() => {
+                          const profit = selectedInventoryItem.selling_price - selectedInventoryItem.cost_price
+                          let previewAmt = 0
+                          let previewBase = ''
+                          if (partRuleForm.commission_type === 'FLAT') {
+                            previewAmt = partRuleForm.rate
+                            previewBase = 'flat per unit'
+                          } else if (partRuleForm.part_source_filter === 'OFFICE_STOCK') {
+                            previewAmt = profit * partRuleForm.rate / 100
+                            previewBase = `${partRuleForm.rate}% of profit ₹${profit.toFixed(2)}`
+                          } else if (partRuleForm.part_source_filter === 'MARKET_PURCHASE') {
+                            previewAmt = selectedInventoryItem.selling_price * partRuleForm.rate / 100
+                            previewBase = `${partRuleForm.rate}% of selling ₹${selectedInventoryItem.selling_price}`
+                          } else {
+                            // Both — show both
+                            const officeComm = profit * partRuleForm.rate / 100
+                            const marketComm = selectedInventoryItem.selling_price * partRuleForm.rate / 100
+                            return (
+                              <div style={{ fontSize: 11, color: '#059669', marginTop: 3 }}>
+                                Preview: Office Stock → <b>₹{officeComm.toFixed(2)}</b> ({partRuleForm.rate}% of profit) &nbsp;|&nbsp;
+                                Market → <b>₹{marketComm.toFixed(2)}</b> ({partRuleForm.rate}% of selling price)
+                              </div>
+                            )
+                          }
+                          return (
+                            <div style={{ fontSize: 11, color: '#059669', marginTop: 3, fontWeight: 600 }}>
+                              Preview: ₹{previewAmt.toFixed(2)} per unit ({previewBase})
+                            </div>
+                          )
+                        })()}
                       </div>
                     </div>
 
