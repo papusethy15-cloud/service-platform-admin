@@ -246,11 +246,10 @@ export default function Commissions() {
       }}>
         <span style={{ fontSize: 16, lineHeight: 1.4 }}>ℹ️</span>
         <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.6 }}>
-          <b>How commissions work:</b> When admin settles a booking, commissions are calculated and the technician's
-          wallet is <b>credited immediately</b>. The technician's wallet balance goes up at that point — they can
-          use it or request a withdrawal anytime.
-          {' '}<b>"Mark Paid"</b> is a <b>bookkeeping step only</b> — it records that the admin has reconciled
-          and confirmed this commission entry. It does <b>not</b> credit the wallet again.
+          <b>How commissions work:</b> When admin settles a booking, commissions are calculated and saved as <b>PENDING</b>.
+          The technician's wallet is <b>NOT credited yet</b> — the amount is shown as "on hold" in their wallet screen.
+          Admin must first <b>Approve</b>, then click <b>"Confirm Payment"</b> (Mark Paid) to release the amount into the technician's wallet.
+          Only after <b>"Confirm Payment"</b> does the wallet balance go up and the technician can withdraw.
         </div>
       </div>
 
@@ -489,10 +488,10 @@ export default function Commissions() {
             <div style={{ padding: '10px 18px', background: '#F0FDF4', borderBottom: '1px solid #BBF7D0' }}>
               <div style={{ fontSize: 11, color: '#166534', lineHeight: 1.5 }}>
                 {drawer.status === 'PAID'
-                  ? `✅ Reconciled on ${fmtDate(drawer.payout_date)}. Wallet was credited at booking settlement.`
+                  ? `✅ Payment confirmed on ${fmtDate(drawer.payout_date)}. Wallet was credited at this point.`
                   : drawer.status === 'APPROVED'
-                  ? '💼 Wallet was credited when booking was settled. "Mark Paid" records admin reconciliation.'
-                  : '⏳ Pending admin review. Wallet credit happens at booking settlement.'}
+                  ? '💼 Approved — wallet will be credited when admin clicks "Confirm Payment".'
+                  : '⏳ Pending admin review. Wallet is NOT credited yet — approve first, then confirm payment.'}
               </div>
             </div>
 
@@ -587,13 +586,13 @@ export default function Commissions() {
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#78350F', lineHeight: 1.8 }}>
               <li>Commission status changes from <b>APPROVED → PAID</b></li>
               <li>Payout date is recorded as <b>now</b></li>
-              <li><b>Wallet is NOT changed</b> — it was already credited when the booking was settled</li>
-              <li>This is a <b>bookkeeping / reconciliation</b> step only</li>
+              <li><b>Technician wallet is credited NOW</b> — this is when the money enters the wallet</li>
+              <li>Technician can request a withdrawal after this step</li>
             </ul>
           </div>
 
           <p style={{ fontSize: 12, color: '#94A3B8', marginBottom: 16 }}>
-            The technician's wallet balance was credited at booking settlement. This step just marks the commission as reconciled in your ledger.
+            This is the step that releases commission into the technician's wallet. After this, they can see the updated balance and request a withdrawal.
           </p>
           <div style={{ display: 'flex', gap: 10 }}>
             <button
@@ -632,7 +631,7 @@ export default function Commissions() {
           {bulkAction === 'pay' && (
             <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
               <div style={{ fontSize: 12, color: '#78350F', lineHeight: 1.7 }}>
-                <b>Reminder:</b> Wallet balances are <b>not affected</b>. This only records the commissions as reconciled in your ledger.
+                <b>Heads up:</b> This will <b>credit the wallet</b> for each selected commission. Technicians will see their balance update and can request withdrawal.
               </div>
             </div>
           )}
