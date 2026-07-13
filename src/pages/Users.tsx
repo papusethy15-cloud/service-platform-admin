@@ -461,6 +461,10 @@ function EditUserModal({ user, onClose, onSaved }: { user:any; onClose:()=>void;
         setErr('Enter a valid 10-digit Indian mobile number (starts with 6–9)')
         setSaving(false); return
       }
+      if (form.password.trim() && form.password.trim().length < 6) {
+        setErr('New password must be at least 6 characters')
+        setSaving(false); return
+      }
       const payload: any = {
         name: form.name.trim(),
         email: form.email.trim() || undefined,
@@ -526,7 +530,27 @@ function EditUserModal({ user, onClose, onSaved }: { user:any; onClose:()=>void;
               </select>
             </Field>
             <Field label="New Password (leave blank to keep current)">
-              <input style={iStyle()} type="password" placeholder="••••••" value={form.password} onChange={e=>upd('password',e.target.value)} />
+              <div style={{ position:'relative' }}>
+                <input id="edit-pw-field" style={iStyle()} type="password" placeholder="Min 6 chars — leave blank to keep current"
+                  value={form.password} onChange={e=>upd('password',e.target.value)}
+                  onInput={e => {
+                    const inp = e.currentTarget
+                    const eye = document.getElementById('edit-pw-eye')
+                    if (eye) eye.style.display = inp.value ? 'block' : 'none'
+                  }}
+                />
+                <button id="edit-pw-eye" type="button" style={{ display:'none', position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94A3B8', fontSize:13 }}
+                  onClick={() => {
+                    const inp = document.getElementById('edit-pw-field') as HTMLInputElement
+                    if (inp) inp.type = inp.type === 'password' ? 'text' : 'password'
+                  }}>👁</button>
+              </div>
+              {form.password.trim().length > 0 && form.password.trim().length < 6 && (
+                <p style={{ fontSize:11, color:'#EF4444', marginTop:3 }}>Password must be at least 6 characters</p>
+              )}
+              {form.password.trim().length >= 6 && (
+                <p style={{ fontSize:11, color:'#16A34A', marginTop:3, fontWeight:600 }}>✓ Password will be updated to the value you entered above</p>
+              )}
             </Field>
           </div>
         </div>

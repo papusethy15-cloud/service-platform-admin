@@ -14,7 +14,7 @@ const MPIN_IDLE_TIMEOUT_MS = 10 * 60 * 1000
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { load, loaded, profileComplete } = usePlatformStore()
-  const { isAuthenticated, idleLogout } = useAuthStore()
+  const { isAuthenticated, idleLogout, freshLogin } = useAuthStore()
   const { enabled: mpinEnabled, locked, setLocked, loadStatus } = useMpinStore()
   const navigate = useNavigate()
 
@@ -74,8 +74,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      {/* Platform setup wizard — blocks access until profile is complete */}
-      {loaded && !profileComplete && <PlatformSetupWizard />}
+      {/* Platform setup wizard — only shown after a fresh login, never on reload */}
+      {freshLogin && loaded && !profileComplete && <PlatformSetupWizard />}
 
       {/* MPIN auto-lock overlay — shown after 10 idle minutes when enabled */}
       {isAuthenticated && mpinEnabled && locked && <MpinLockScreen />}
