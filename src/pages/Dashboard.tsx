@@ -32,11 +32,27 @@ const STATUS_COLOR: Record<string, string> = {
   PENDING: '#F59E0B',
   CONFIRMED: '#3B82F6',
   ASSIGNED: '#8B5CF6',
+  ACCEPTED: '#7C3AED',
   EN_ROUTE: '#06B6D4',
+  ARRIVED: '#0284C7',
+  INSPECTING: '#0EA5E9',
   IN_PROGRESS: '#0EA5E9',
+  WORK_STARTED: '#0284C7',
+  WORK_PAUSED: '#F97316',
+  PENDING_VERIFICATION: '#D97706',
+  TECHNICIAN_ACCEPTED: '#7C3AED',
+  QUOTATION_APPROVED: '#059669',
+  INVOICE_GENERATED: '#10B981',
+  PAYMENT_PENDING: '#D97706',
+  PAID: '#059669',
   COMPLETED: '#10B981',
+  CLOSED: '#166534',
+  SETTLED: '#15803D',
   CANCELLED: '#EF4444',
   RESCHEDULED: '#F97316',
+  CANCELLATION_REQUESTED: '#DC2626',
+  REFUND_INITIATED: '#7F1D1D',
+  NO_SHOW: '#6B7280',
 }
 
 const CHART_COLORS = ['#1B4FD8', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4']
@@ -247,12 +263,12 @@ export default function Dashboard() {
         />
         <KPICard
           icon="🔧" label="In Progress" color="#0EA5E9"
-          value={(bk.in_progress || 0) + (bk.confirmed || 0)} sub={`${bk.in_progress || 0} active · ${bk.confirmed || 0} confirmed`}
+          value={bk.in_progress || 0} sub={`${bk.confirmed || 0} confirmed · rest active`}
         />
         <KPICard
-          icon="✅" label="Completed (Month)" color="#10B981"
+          icon="✅" label="Closed (Month)" color="#10B981"
           value={bk.completed_this_month || 0}
-          sub={`${bk.completion_rate || 0}% overall completion rate`}
+          sub={`${bk.completion_rate || 0}% overall closure rate`}
         />
       </div>
 
