@@ -11,6 +11,7 @@ const nav = [
   { to: '/quotations',  icon: '📄', label: 'Quotations' },
   { to: '/invoices',    icon: '🧾', label: 'Invoices' },
   { to: '/payments',    icon: '💳', label: 'Payments' },
+  { to: '/razorpay-transactions', icon: '💳', label: 'Razorpay Txns' },
   { to: '/refunds',     icon: '↩️', label: 'Refunds' },
   { to: '/escalations', icon: '⚠️', label: 'Escalations' },
   { section: 'CATALOG' },
@@ -39,6 +40,7 @@ const nav = [
   { to: '/users',         icon: '👤', label: 'Admin Users' },
   { to: '/notifications', icon: '🔔', label: 'Notifications' },
   { to: '/reports',       icon: '📈', label: 'Reports' },
+  { to: '/gst-report',    icon: '🧾', label: 'GST Reports' },
   { to: '/audit',         icon: '📜', label: 'Audit Logs' },
   { to: '/settings',      icon: '⚙️', label: 'Settings' },
 ]

@@ -35,6 +35,8 @@ import Users          from '@/pages/Users'
 import Settings       from '@/pages/Settings'
 import CallbackRequests from '@/pages/CallbackRequests'
 import DispatchMonitor  from '@/pages/DispatchMonitor'
+import RazorpayTransactions from '@/pages/RazorpayTransactions'
+import GSTReport      from '@/pages/GSTReport'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -82,6 +84,8 @@ export default function App() {
                 <Route path="/settings"     element={<Settings />} />
                 <Route path="/callback-requests" element={<CallbackRequests />} />
                 <Route path="/dispatch"         element={<DispatchMonitor />} />
+                <Route path="/razorpay-transactions" element={<RazorpayTransactions />} />
+                <Route path="/gst-report"        element={<GSTReport />} />
                 <Route path="*"             element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>

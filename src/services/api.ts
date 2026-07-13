@@ -201,13 +201,19 @@ export const invoicesAPI = {
 
 // ── Payments ───────────────────────────────────────────────────
 export const paymentsAPI = {
-  history:      (params?: any) => api.get('/payments/history', { params }),
-  createOrder:  (d: any)       => api.post('/payments/order', d),
-  verify:       (d: any)       => api.post('/payments/verify', d),
-  cash:         (d: any)       => api.post('/payments/cash', d),
-  bankTransfer: (d: any)       => api.post('/payments/bank-transfer', d),
-  generateLink: (d: any)       => api.post('/payments/generate-link', d),
-  generateQR:   (d: any)       => api.post('/payments/generate-qr', d),
+  history:          (params?: any) => api.get('/payments/history', { params }),
+  razorpayTxns:     (params?: any) => api.get('/payments/razorpay/transactions', { params }),
+  createOrder:      (d: any)       => api.post('/payments/order', d),
+  verify:           (d: any)       => api.post('/payments/verify', d),
+  cash:             (d: any)       => api.post('/payments/cash', d),
+  bankTransfer:     (d: any)       => api.post('/payments/bank-transfer', d),
+  generateLink:     (d: any)       => api.post('/payments/generate-link', d),
+  generateQR:       (d: any)       => api.post('/payments/generate-qr', d),
+}
+
+// ── Razorpay (admin view) ──────────────────────────────────────
+export const razorpayAPI = {
+  transactions: (params?: any) => api.get('/payments/razorpay/transactions', { params }),
 }
 
 // ── Cash Collections ───────────────────────────────────────────
@@ -336,9 +342,10 @@ export const notificationsAPI = {
 
 // ── Reports ────────────────────────────────────────────────────
 export const reportsAPI = {
-  revenue:   (params?: any) => api.get('/reports/revenue', { params }),
-  gst:       (params?: any) => api.get('/reports/gst', { params }),
-  customers: (params?: any) => api.get('/reports/customers', { params }),
+  revenue:     (params?: any) => api.get('/reports/revenue', { params }),
+  gst:         (params?: any) => api.get('/reports/gst', { params }),
+  customers:   (params?: any) => api.get('/reports/customers', { params }),
+  technician:  (params?: any) => api.get('/reports/technician', { params }),
 }
 
 // ── GST ────────────────────────────────────────────────────────
@@ -444,10 +451,11 @@ export const leavesAPI = {
 
 // ── Refunds ────────────────────────────────────────────────────
 export const refundsAPI = {
-  list:    (params?: any)        => api.get('/refunds', { params }),
-  create:  (d: any)              => api.post('/refunds', d),
-  approve: (id: string, d?: any) => api.post(`/refunds/${id}/approve`, d || {}),
-  process: (id: string, d: any)  => api.post(`/refunds/${id}/process`, d),
+  list:          (params?: any)        => api.get('/refunds', { params }),
+  create:        (d: any)              => api.post('/refunds', d),
+  approve:       (id: string, d?: any) => api.post(`/refunds/${id}/approve`, d || {}),
+  process:       (id: string, d: any)  => api.post(`/refunds/${id}/process`, d),
+  razorpayRefund:(id: string)          => api.post(`/refunds/${id}/razorpay`, {}),
 }
 
 // ── Appliances ─────────────────────────────────────────────────
@@ -481,6 +489,13 @@ export const slaAPI = {
 // ── Audit Logs ─────────────────────────────────────────────────
 export const auditAPI = {
   list: (params?: any) => api.get('/audit', { params }),
+}
+
+// ── GST (separate from reports) ────────────────────────────────
+export const gstReportAPI = {
+  report:   (params?: any) => api.get('/reports/gst', { params }),
+  settings: ()             => api.get('/gst/settings'),
+  update:   (d: any)       => api.put('/gst/settings', d),
 }
 
 // ── Franchises ─────────────────────────────────────────────────

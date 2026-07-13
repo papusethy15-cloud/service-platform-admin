@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { paymentsAPI } from '@/services/api'
+import { paymentsAPI, refundsAPI } from '@/services/api'
 import PageHeader from '@/components/layout/PageHeader'
 import Pagination from '@/components/ui/Pagination'
 import Modal from '@/components/ui/Modal'
@@ -29,6 +29,11 @@ export default function Payments() {
   const [pages, setPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [detail, setDetail] = useState<any>(null)
+  const [refundModal, setRefundModal] = useState<any>(null)
+  const [refundForm, setRefundForm] = useState({ amount: '', reason: '', method: 'ORIGINAL', upi_id: '', bank_account: '', bank_ifsc: '', beneficiary_name: '' })
+  const [refunding, setRefunding] = useState(false)
+  const [refundErr, setRefundErr] = useState('')
+  const [refundOk, setRefundOk] = useState('')
 
   // Filter state
   const [search, setSearch] = useState('')
@@ -83,6 +88,40 @@ export default function Payments() {
     refs.current = f
     setPage(1)
     fetchData(1, f)
+  }
+
+  const openRefund = (p: any) => {
+    setRefundForm({ amount: String(p.amount || ''), reason: '', method: p.payment_method === 'RAZORPAY' ? 'RAZORPAY' : 'CASH', upi_id: '', bank_account: '', bank_ifsc: '', beneficiary_name: '' })
+    setRefundErr(''); setRefundOk(''); setRefundModal(p)
+  }
+
+  const submitRefund = async () => {
+    if (!refundForm.reason.trim()) { setRefundErr('Reason is required'); return }
+    setRefunding(true); setRefundErr(''); setRefundOk('')
+    try {
+      const cr = await refundsAPI.create({
+        booking_id: refundModal.booking_id,
+        payment_id: refundModal.id,
+        amount: +refundForm.amount,
+        reason: refundForm.reason,
+        refund_method: refundForm.method,
+        upi_id: refundForm.upi_id || undefined,
+        bank_account: refundForm.bank_account || undefined,
+        bank_ifsc: refundForm.bank_ifsc || undefined,
+        beneficiary_name: refundForm.beneficiary_name || undefined,
+      })
+      const refundId = cr.data?.data?.id
+      await refundsAPI.approve(refundId)
+      if (refundForm.method === 'RAZORPAY' && refundModal.provider_payment_id) {
+        await refundsAPI.razorpayRefund(refundId)
+        setRefundOk('Razorpay refund initiated! Will reflect in 5–7 business days.')
+      } else {
+        setRefundOk(`Refund recorded (${refundForm.method}). Please process the transfer manually.`)
+      }
+      fetchData(page)
+    } catch (e: any) {
+      setRefundErr(e.response?.data?.detail || 'Refund failed. Please try again.')
+    } finally { setRefunding(false) }
   }
 
   const fmt = (n: any) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
@@ -245,12 +284,15 @@ export default function Payments() {
                           {fmtDateShort(p.created_at)}
                         </td>
                         <td>
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => setDetail(p)}
-                          >
-                            View
-                          </button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => setDetail(p)}>View</button>
+                            {p.status === 'SUCCESS' && (
+                              <button onClick={() => openRefund(p)}
+                                style={{ fontSize: 11, color: '#DC2626', background: '#FEE2E2', border: 'none', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+                                Refund
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
@@ -262,6 +304,76 @@ export default function Payments() {
           </>
         )}
       </div>
+
+      {/* Refund Modal */}
+      {refundModal && (
+        <Modal title="Initiate Refund" onClose={() => setRefundModal(null)}>
+          <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: '#64748B' }}>Payment: <b style={{ fontFamily: 'monospace' }}>{refundModal.transaction_number}</b></div>
+            <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>Customer: <b>{refundModal.customer_name}</b> · Booking: <b style={{ fontFamily: 'monospace' }}>{refundModal.booking_number}</b></div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#059669', marginTop: 4 }}>Paid: {fmt(refundModal.amount)} via {refundModal.payment_method}</div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Refund Type</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setRefundForm(f => ({ ...f, amount: String(refundModal.amount) }))}
+                style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${+refundForm.amount === refundModal.amount ? '#1B4FD8' : '#E2E8F0'}`, cursor: 'pointer', fontSize: 12, fontWeight: 600, background: +refundForm.amount === refundModal.amount ? '#EFF6FF' : '#fff' }}>
+                Full ({fmt(refundModal.amount)})
+              </button>
+              <button onClick={() => setRefundForm(f => ({ ...f, amount: '' }))}
+                style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${refundForm.amount && +refundForm.amount < refundModal.amount ? '#1B4FD8' : '#E2E8F0'}`, cursor: 'pointer', fontSize: 12, fontWeight: 600, background: refundForm.amount && +refundForm.amount < refundModal.amount ? '#EFF6FF' : '#fff' }}>
+                Partial
+              </button>
+            </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Amount ₹ *</label>
+            <input className="input" type="number" step="0.01" max={refundModal.amount} value={refundForm.amount} onChange={e => setRefundForm(f => ({ ...f, amount: e.target.value }))} />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Refund Method *</label>
+            <select className="input" value={refundForm.method} onChange={e => setRefundForm(f => ({ ...f, method: e.target.value }))}>
+              {refundModal.payment_method === 'RAZORPAY' && <option value="RAZORPAY">Razorpay (Auto-reverse via gateway)</option>}
+              <option value="CASH">Cash (Manual)</option>
+              <option value="BANK_TRANSFER">Bank Transfer</option>
+              <option value="UPI">UPI</option>
+              <option value="WALLET">Wallet Credit</option>
+            </select>
+          </div>
+          {refundForm.method === 'UPI' && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>UPI ID *</label>
+              <input className="input" value={refundForm.upi_id} onChange={e => setRefundForm(f => ({ ...f, upi_id: e.target.value }))} placeholder="customer@upi" />
+            </div>
+          )}
+          {refundForm.method === 'BANK_TRANSFER' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Account Number</label>
+                <input className="input" value={refundForm.bank_account} onChange={e => setRefundForm(f => ({ ...f, bank_account: e.target.value }))} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>IFSC Code</label>
+                <input className="input" value={refundForm.bank_ifsc} onChange={e => setRefundForm(f => ({ ...f, bank_ifsc: e.target.value }))} placeholder="SBIN0001234" />
+              </div>
+              <div style={{ gridColumn: 'span 2' }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Account Holder Name</label>
+                <input className="input" value={refundForm.beneficiary_name} onChange={e => setRefundForm(f => ({ ...f, beneficiary_name: e.target.value }))} />
+              </div>
+            </div>
+          )}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Reason *</label>
+            <textarea className="input" style={{ height: 70, resize: 'vertical' }} value={refundForm.reason} onChange={e => setRefundForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for refund..." />
+          </div>
+          {refundErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 12px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{refundErr}</div>}
+          {refundOk  && <div style={{ background: '#F0FDF4', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>✅ {refundOk}</div>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            {!refundOk && <button className="btn btn-primary" onClick={submitRefund} disabled={refunding}>{refunding ? <Spinner size="sm" /> : 'Confirm Refund'}</button>}
+            <button className="btn btn-secondary" onClick={() => setRefundModal(null)}>Close</button>
+          </div>
+        </Modal>
+      )}
 
       {/* Detail Modal */}
       {detail && (
