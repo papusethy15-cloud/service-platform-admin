@@ -29,7 +29,7 @@ export default function Notifications() {
   const fetchLogs = async () => {
     setLoading(true)
     try {
-      const r = await notificationsAPI.list({ page, per_page: 25 })
+      const r = await notificationsAPI.adminLog({ page, per_page: 25 })
       const d = r.data.data
       setLogs(d.items || []); setPages(d.pages || 1); setTotal(d.total || 0)
     } catch { setLogs([]) } finally { setLoading(false) }
@@ -55,10 +55,10 @@ export default function Notifications() {
         })
       } else {
         // Audience-based — POST /notifications/bulk (no user_id required)
-        const roleMap: Record<string, string> = {
+        const roleMap: Record<string, string | undefined> = {
           ALL_CUSTOMERS: 'CUSTOMER',
           ALL_TECHNICIANS: 'TECHNICIAN',
-          CUSTOM_SEGMENT: 'CUSTOMER',
+          CUSTOM_SEGMENT: undefined,
         }
         await notificationsAPI.bulk({
           role: roleMap[sendForm.audience] || undefined,
@@ -69,7 +69,11 @@ export default function Notifications() {
       }
       setSendSuccess(true)
       setSendForm({ title: '', body: '', channel: 'PUSH', audience: 'ALL_CUSTOMERS', user_id: '', booking_id: '', scheduled_at: '' })
-    } catch (ex: any) { setSendErr(ex.response?.data?.detail || 'Failed to send notification') } finally { setSending(false) }
+      // Auto-switch to log tab so admin sees the sent notifications
+      setTimeout(() => setTab('log'), 1200)
+    } catch (ex: any) {
+      setSendErr(ex.response?.data?.detail || ex.message || 'Failed to send notification')
+    } finally { setSending(false) }
   }
 
   const tabStyle = (t: string) => ({
@@ -115,7 +119,17 @@ export default function Notifications() {
                             {n.channel}
                           </span>
                         </td>
-                        <td style={{ fontSize: 12 }}>{n.recipient_name || n.audience || n.user_id || '—'}</td>
+                        <td style={{ fontSize: 12 }}>
+                          <div>{n.recipient_name || '—'}</div>
+                          {n.recipient_role && (
+                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8,
+                              background: n.recipient_role === 'TECHNICIAN' ? '#EFF6FF' : '#F0FDF4',
+                              color: n.recipient_role === 'TECHNICIAN' ? '#1B4FD8' : '#059669',
+                              fontWeight: 700 }}>
+                              {n.recipient_role}
+                            </span>
+                          )}
+                        </td>
                         <td><StatusBadge status={n.status || 'SENT'} /></td>
                         <td style={{ fontSize: 12, color: '#94A3B8' }}>{fmt(n.sent_at || n.created_at)}</td>
                       </tr>

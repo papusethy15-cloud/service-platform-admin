@@ -334,6 +334,7 @@ export const warrantyAPI = {
 // ── Notifications ──────────────────────────────────────────────
 export const notificationsAPI = {
   list:      (params?: any) => api.get('/notifications', { params }),
+  adminLog:  (params?: any) => api.get('/notifications/admin-log', { params }),
   send:      (d: any)       => api.post('/notifications/send', d),
   bulk:      (d: any)       => api.post('/notifications/bulk', d),
   templates: ()             => api.get('/notifications/templates'),
