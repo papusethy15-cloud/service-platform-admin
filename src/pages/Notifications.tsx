@@ -37,8 +37,8 @@ export default function Notifications() {
 
   useEffect(() => { if (tab === 'log') fetchLogs() }, [tab, page])
 
-  const handleSend = async (e: any) => {
-    e.preventDefault(); setSending(true); setSendErr(''); setSendSuccess(false)
+  const handleSend = async () => {
+    setSending(true); setSendErr(''); setSendSuccess(false)
     try {
       if (sendForm.audience === 'SPECIFIC_USER') {
         // Single user — POST /notifications/send (requires user_id UUID)
@@ -148,7 +148,7 @@ export default function Notifications() {
               ✅ Notification sent successfully!
             </div>
           )}
-          <form onSubmit={handleSend}>
+          <div>
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Title *</label>
               <input className="input" value={sendForm.title} onChange={e => setSendForm(f => ({ ...f, title: e.target.value }))}
@@ -193,7 +193,7 @@ export default function Notifications() {
             </div>
             {sendErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 12 }}>{sendErr}</div>}
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-primary" type="submit" disabled={sending}>
+              <button className="btn btn-primary" type="button" onClick={handleSend} disabled={sending}>
                 {sending ? <Spinner size="sm" /> : '🔔 Send Notification'}
               </button>
               <button className="btn btn-secondary" type="button"
@@ -201,7 +201,7 @@ export default function Notifications() {
                 Clear
               </button>
             </div>
-          </form>
+          </div>
         </div>
       )}
     </div>
