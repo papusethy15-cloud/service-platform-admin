@@ -1,12 +1,11 @@
-import { useEffect, useState } from 'react'
-import { commissionsAPI, servicesAPI, techniciansAPI, domainsAPI } from '@/services/api'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { commissionsAPI, servicesAPI, techniciansAPI, domainsAPI, inventoryAPI } from '@/services/api'
 import Toast, { useToast } from '@/components/ui/Toast'
 import PageHeader from '@/components/layout/PageHeader'
 import Modal from '@/components/ui/Modal'
 import Spinner from '@/components/ui/Spinner'
-import StatusBadge from '@/components/ui/StatusBadge'
 
-interface Service  { id: string; name: string; category_name?: string }
+interface Service  { id: string; name: string; category_name?: string; base_price?: number }
 interface Domain   { id: string; name: string }
 interface GroupRule { id?: string; service_id: string; domain_id: string|null; commission_type: string; rate: number }
 interface Group {
@@ -15,16 +14,331 @@ interface Group {
 }
 interface Technician { id: string; name: string; mobile: string; technician_code?: string }
 
+interface CityPrice { city_id: string; city_name: string; city_state: string; price: number; in_domain: boolean }
+interface PricePreview {
+  service_id: string; service_name: string; base_price: number;
+  gst_percent: number; city_prices: CityPrice[]; has_overrides: boolean
+}
+
+interface InventoryItem {
+  id: string; name: string; sku?: string; cost_price: number; selling_price: number; mrp: number; unit: string; current_stock: number
+}
+
 const brand = '#1B4FD8'
 
 function Label({ children }: { children: React.ReactNode }) {
   return <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>{children}</label>
 }
 
+// ── Service search combobox ──────────────────────────────────────────────────
+function ServiceSearchBox({
+  value, onChange, placeholder
+}: { value: Service|null; onChange: (s: Service|null) => void; placeholder?: string }) {
+  const [query, setQuery]       = useState(value?.name || '')
+  const [results, setResults]   = useState<Service[]>([])
+  const [open, setOpen]         = useState(false)
+  const [loading, setLoading]   = useState(false)
+  const timerRef = useRef<any>(null)
+  const wrapRef  = useRef<HTMLDivElement>(null)
+
+  // Sync external value
+  useEffect(() => { setQuery(value?.name || '') }, [value?.name])
+
+  const search = useCallback((q: string) => {
+    if (q.length < 1) { setResults([]); setOpen(false); return }
+    setLoading(true)
+    servicesAPI.list({ search: q, per_page: 20, visible_only: false })
+      .then(r => {
+        const list: Service[] = r.data.data?.services || r.data.data?.items || r.data.data || []
+        setResults(list); setOpen(true)
+      })
+      .catch(() => setResults([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const onInput = (v: string) => {
+    setQuery(v)
+    if (!v) { onChange(null); setOpen(false); setResults([]); return }
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => search(v), 280)
+  }
+
+  const select = (s: Service) => {
+    onChange(s); setQuery(s.name); setOpen(false)
+  }
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }}>
+        <input
+          className="input"
+          value={query}
+          onChange={e => onInput(e.target.value)}
+          onFocus={() => { if (results.length > 0) setOpen(true) }}
+          placeholder={placeholder || 'Search service name…'}
+          style={{ paddingRight: 32 }}
+        />
+        {loading && (
+          <div style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)' }}>
+            <Spinner size="sm" />
+          </div>
+        )}
+        {value && !loading && (
+          <button onClick={() => { onChange(null); setQuery(''); setResults([]); setOpen(false) }}
+            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+              background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: 16, lineHeight: 1 }}>
+            ×
+          </button>
+        )}
+      </div>
+      {open && results.length > 0 && (
+        <div style={{ position: 'absolute', zIndex: 100, top: '100%', left: 0, right: 0, background: 'white',
+          border: '1px solid #E2E8F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          maxHeight: 220, overflowY: 'auto', marginTop: 2 }}>
+          {results.map(s => (
+            <div key={s.id} onClick={() => select(s)}
+              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #F8FAFC',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#EFF6FF')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+              <span style={{ color: '#0F172A', fontWeight: 500 }}>{s.name}</span>
+              {s.base_price !== undefined && (
+                <span style={{ color: '#059669', fontSize: 12, fontWeight: 600 }}>₹{s.base_price}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {open && !loading && results.length === 0 && query.length >= 1 && (
+        <div style={{ position: 'absolute', zIndex: 100, top: '100%', left: 0, right: 0, background: 'white',
+          border: '1px solid #E2E8F0', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#94A3B8',
+          marginTop: 2, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+          No services found for "{query}"
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Price Structure Panel ────────────────────────────────────────────────────
+function PricePreviewPanel({ serviceId, domainId, commissionType, rate }:
+  { serviceId: string; domainId: string|null; commissionType: string; rate: number }) {
+  const [preview, setPreview] = useState<PricePreview|null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!serviceId) { setPreview(null); return }
+    setLoading(true)
+    commissionsAPI.servicePricePreview(serviceId, domainId)
+      .then(r => setPreview(r.data.data))
+      .catch(() => setPreview(null))
+      .finally(() => setLoading(false))
+  }, [serviceId, domainId])
+
+  if (!serviceId) return null
+  if (loading) return <div style={{ padding: '8px 0', fontSize: 12, color: '#94A3B8' }}><Spinner size="sm" /> Loading price structure…</div>
+  if (!preview) return null
+
+  const calcComm = (price: number) =>
+    commissionType === 'PERCENTAGE' ? (price * rate / 100) : rate
+
+  const domainCities = preview.city_prices.filter(c => c.in_domain)
+  const otherCities  = preview.city_prices.filter(c => !c.in_domain)
+
+  return (
+    <div style={{ marginTop: 10, background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
+      <div style={{ fontWeight: 700, color: '#166534', marginBottom: 6, fontSize: 12 }}>
+        📊 Price Structure — {preview.service_name}
+      </div>
+
+      {/* Base price */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '5px 8px', background: 'white', borderRadius: 6, marginBottom: 4,
+        border: preview.has_overrides ? '1px solid #E2E8F0' : '2px solid #22C55E' }}>
+        <div>
+          <span style={{ color: '#374151', fontWeight: 600 }}>Base Price</span>
+          {!preview.has_overrides && (
+            <span style={{ background: '#DCFCE7', color: '#166534', fontSize: 10, fontWeight: 700,
+              padding: '1px 6px', borderRadius: 10, marginLeft: 6 }}>Used for commission</span>
+          )}
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <span style={{ fontWeight: 700, color: '#0F172A' }}>₹{preview.base_price}</span>
+          {rate > 0 && <span style={{ color: '#059669', marginLeft: 8, fontWeight: 600 }}>→ ₹{calcComm(preview.base_price).toFixed(2)} comm.</span>}
+        </div>
+      </div>
+
+      {/* Domain-linked city prices */}
+      {domainCities.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: '#6D28D9', fontWeight: 700, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            🌐 Domain Cities ({domainCities.length})
+            {domainId && <span style={{ color: '#94A3B8', fontWeight: 400, marginLeft: 4 }}>— commission uses these prices</span>}
+          </div>
+          {domainCities.map(c => (
+            <div key={c.city_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '4px 8px', background: '#F5F3FF', borderRadius: 5, marginBottom: 3, border: '1px solid #DDD6FE' }}>
+              <span style={{ color: '#374151' }}>📍 {c.city_name}, {c.city_state}</span>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontWeight: 700, color: '#7C3AED' }}>₹{c.price}</span>
+                {rate > 0 && <span style={{ color: '#059669', marginLeft: 8, fontWeight: 600 }}>→ ₹{calcComm(c.price).toFixed(2)}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Other cities (visible only if no domain filter) */}
+      {!domainId && otherCities.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: '#64748B', fontWeight: 700, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            City Overrides ({otherCities.length})
+          </div>
+          {otherCities.map(c => (
+            <div key={c.city_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '4px 8px', background: '#EFF6FF', borderRadius: 5, marginBottom: 3, border: '1px solid #BFDBFE' }}>
+              <span style={{ color: '#374151' }}>📍 {c.city_name}, {c.city_state}</span>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontWeight: 700, color: brand }}>₹{c.price}</span>
+                {rate > 0 && <span style={{ color: '#059669', marginLeft: 8, fontWeight: 600 }}>→ ₹{calcComm(c.price).toFixed(2)}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!preview.has_overrides && (
+        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 6, fontStyle: 'italic' }}>
+          ℹ️ No city-specific overrides — base price applies in all cities
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: '#64748B', marginTop: 6, paddingTop: 5, borderTop: '1px solid #BBF7D0' }}>
+        💡 Commission priority: Domain city price → City override → Base price
+      </div>
+    </div>
+  )
+}
+
+// ── Inventory item search combobox ───────────────────────────────────────────
+function InventorySearchBox({
+  onSelect
+}: { onSelect: (item: InventoryItem|null) => void }) {
+  const [query, setQuery]     = useState('')
+  const [results, setResults] = useState<InventoryItem[]>([])
+  const [open, setOpen]       = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [selected, setSelected] = useState<InventoryItem|null>(null)
+  const timerRef = useRef<any>(null)
+  const wrapRef  = useRef<HTMLDivElement>(null)
+
+  const search = (q: string) => {
+    if (q.length < 1) { setResults([]); setOpen(false); return }
+    setLoading(true)
+    inventoryAPI.list({ search: q, per_page: 15 })
+      .then((r: any) => { const list = r.data.data?.items || []; setResults(list); setOpen(true) })
+      .catch(() => setResults([]))
+      .finally(() => setLoading(false))
+  }
+
+  const onInput = (v: string) => {
+    setQuery(v)
+    if (!v) { setSelected(null); onSelect(null); setOpen(false); setResults([]); return }
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => search(v), 280)
+  }
+
+  const pick = (item: InventoryItem) => {
+    setSelected(item); setQuery(item.name); setOpen(false); onSelect(item)
+  }
+
+  const clear = () => { setSelected(null); setQuery(''); setResults([]); setOpen(false); onSelect(null) }
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={wrapRef}>
+      <div style={{ position: 'relative' }}>
+        <input className="input" value={query} onChange={e => onInput(e.target.value)}
+          onFocus={() => { if (results.length > 0) setOpen(true) }}
+          placeholder="Search spare part / inventory item…" style={{ paddingRight: 32 }} />
+        {loading && <div style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)' }}><Spinner size="sm" /></div>}
+        {selected && !loading && (
+          <button onClick={clear} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+            background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: 16 }}>×</button>
+        )}
+      </div>
+      {open && results.length > 0 && (
+        <div style={{ position: 'absolute', zIndex: 100, background: 'white',
+          border: '1px solid #E2E8F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          maxHeight: 220, overflowY: 'auto', marginTop: 2, minWidth: 300 }}>
+          {results.map(item => (
+            <div key={item.id} onClick={() => pick(item)}
+              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #F8FAFC' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#EFF6FF')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+              <div style={{ fontWeight: 600, color: '#0F172A' }}>{item.name}</div>
+              <div style={{ color: '#64748B', marginTop: 1 }}>
+                Cost: ₹{item.cost_price} · Sale: ₹{item.selling_price} · MRP: ₹{item.mrp} · Stock: {item.current_stock} {item.unit}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Show selected item price details */}
+      {selected && (
+        <div style={{ marginTop: 8, background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
+          <div style={{ fontWeight: 700, color: '#92400E', marginBottom: 5 }}>🔩 {selected.name}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+            <div style={{ background: 'white', border: '1px solid #FDE68A', borderRadius: 5, padding: '5px 8px' }}>
+              <div style={{ fontSize: 10, color: '#92400E', fontWeight: 700 }}>COST PRICE</div>
+              <div style={{ fontWeight: 700, color: '#0F172A', fontSize: 14 }}>₹{selected.cost_price}</div>
+            </div>
+            <div style={{ background: 'white', border: '1px solid #FDE68A', borderRadius: 5, padding: '5px 8px' }}>
+              <div style={{ fontSize: 10, color: '#92400E', fontWeight: 700 }}>SELLING PRICE</div>
+              <div style={{ fontWeight: 700, color: '#0F172A', fontSize: 14 }}>₹{selected.selling_price}</div>
+            </div>
+            <div style={{ background: 'white', border: '1px solid #FDE68A', borderRadius: 5, padding: '5px 8px' }}>
+              <div style={{ fontSize: 10, color: '#92400E', fontWeight: 700 }}>PROFIT</div>
+              <div style={{ fontWeight: 700, color: '#059669', fontSize: 14 }}>
+                ₹{(selected.selling_price - selected.cost_price).toFixed(2)}
+                {selected.selling_price > 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 400, color: '#64748B', marginLeft: 4 }}>
+                    ({((selected.selling_price - selected.cost_price) / selected.selling_price * 100).toFixed(1)}%)
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div style={{ marginTop: 5, fontSize: 11, color: '#78716C' }}>
+            ℹ️ For OFFICE_STOCK: commission should be ≤ profit. Market purchase cost goes to technician, so commission can be from full selling price.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
 export default function CommissionGroups() {
   const [groups, setGroups]       = useState<Group[]>([])
   const [loading, setLoading]     = useState(true)
-  const [services, setServices]   = useState<Service[]>([])
   const [allTechs, setAllTechs]   = useState<Technician[]>([])
   const [domains, setDomains]     = useState<Domain[]>([])
 
@@ -33,6 +347,8 @@ export default function CommissionGroups() {
   const [editing, setEditing]     = useState<Group | null>(null)
   const [form, setForm]           = useState({ name: '', description: '' })
   const [rules, setRules]         = useState<GroupRule[]>([])
+  // Per-rule selected service objects (for displaying price preview)
+  const [ruleServices, setRuleServices] = useState<(Service|null)[]>([])
   const [saving, setSaving]       = useState(false)
   const [err, setErr]             = useState('')
   const [confirmDelete, setConfirmDelete] = useState<Group | null>(null)
@@ -45,7 +361,7 @@ export default function CommissionGroups() {
   const [assignSearch, setAssignSearch]   = useState('')
   const [assigning, setAssigning]         = useState(false)
 
-  // Part commission rules (per group detail)
+  // Part commission rules
   const [partRules, setPartRules]         = useState<any[]>([])
   const [partRulesLoading, setPartRulesLoading] = useState(false)
   const [showPartRuleForm, setShowPartRuleForm] = useState(false)
@@ -54,8 +370,10 @@ export default function CommissionGroups() {
     part_name_match: '', part_source_filter: '', commission_type: 'PERCENTAGE', rate: 0
   })
   const [partRuleSaving, setPartRuleSaving] = useState(false)
+  const [partRuleErr, setPartRuleErr]       = useState('')
+  // Selected inventory item for part rule preview
+  const [selectedInventoryItem, setSelectedInventoryItem] = useState<InventoryItem|null>(null)
 
-  // Load
   const fetchGroups = async () => {
     setLoading(true)
     try { const r = await commissionsAPI.listGroups(); setGroups(r.data.data || []) }
@@ -64,19 +382,15 @@ export default function CommissionGroups() {
 
   useEffect(() => {
     fetchGroups()
-    servicesAPI.list({ per_page: 200, visible_only: false })
-      .then(r => setServices(r.data.data?.services || r.data.data?.items || []))
-      .catch(() => {})
     techniciansAPI.list({ per_page: 200 })
       .then(r => { const d = r.data.data; setAllTechs(d.technicians || d.items || []) })
       .catch(() => {})
     domainsAPI.list({ per_page: 100 })
       .then(r => {
         const d = r.data.data
-        const list = Array.isArray(d) ? d : (d?.items || d?.domains || d?.data || [])
-        setDomains(list)
+        setDomains(Array.isArray(d) ? d : (d?.items || d?.domains || d?.data || []))
       })
-      .catch(() => { setDomains([]) })
+      .catch(() => setDomains([]))
   }, [])
 
   // ── Open create ──────────────────────────────────────────────────────────────
@@ -84,22 +398,34 @@ export default function CommissionGroups() {
     setEditing(null)
     setForm({ name: '', description: '' })
     setRules([{ service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }])
+    setRuleServices([null])
     setErr(''); setShowModal(true)
   }
 
   // ── Open edit ────────────────────────────────────────────────────────────────
-  const openEdit = (g: Group) => {
+  const openEdit = async (g: Group) => {
     setEditing(g)
     setForm({ name: g.name, description: g.description || '' })
-    setRules(g.rules.length ? g.rules.map(r => ({ ...r }))
-      : [{ service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }])
+    const baseRules = g.rules.length
+      ? g.rules.map(r => ({ ...r }))
+      : [{ service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }]
+    setRules(baseRules)
+    // Resolve service names for existing rules
+    const svcObjs: (Service|null)[] = baseRules.map(() => null)
+    setRuleServices(svcObjs)
     setErr(''); setShowModal(true)
   }
 
   // ── Save ─────────────────────────────────────────────────────────────────────
   const save = async () => {
     if (!form.name.trim()) { setErr('Group name is required'); return }
-    const validRules = rules.filter(r => r.service_id && r.rate > 0)
+    const validRules = rules.filter(r => r.service_id)
+    if (validRules.length === 0) { setErr('At least one service rule with a selected service is required'); return }
+    const zeroRate = validRules.find(r => r.rate <= 0)
+    if (zeroRate) { setErr('All rules must have a commission rate greater than 0'); return }
+    if (rules.filter(r => r.commission_type === 'PERCENTAGE').some(r => r.rate > 100)) {
+      setErr('Percentage commission cannot exceed 100%'); return
+    }
     setSaving(true); setErr('')
     try {
       const payload = { name: form.name, description: form.description, rules: validRules }
@@ -109,7 +435,8 @@ export default function CommissionGroups() {
         await commissionsAPI.createGroup(payload)
       }
       setShowModal(false); fetchGroups()
-      toast.success(editing ? 'Group Updated' : 'Group Created', editing ? 'Commission group saved successfully.' : 'New commission group created.')
+      toast.success(editing ? 'Group Updated' : 'Group Created',
+        editing ? 'Commission group saved successfully.' : 'New commission group created.')
     } catch (e: any) { setErr(e.response?.data?.detail || 'Save failed') }
     finally { setSaving(false) }
   }
@@ -117,6 +444,7 @@ export default function CommissionGroups() {
   // ── Open detail ──────────────────────────────────────────────────────────────
   const openDetail = async (g: Group) => {
     setDetailLoading(true); setDetail({ ...g, technicians: [] }); setPartRules([])
+    setShowPartRuleForm(false); setEditingPartRule(null); setSelectedInventoryItem(null)
     try {
       const [r, pr] = await Promise.all([
         commissionsAPI.getGroup(g.id),
@@ -132,7 +460,30 @@ export default function CommissionGroups() {
     setPartRules(pr.data.data || [])
   }
 
+  // ── Part rule validation ─────────────────────────────────────────────────────
+  const validatePartRule = (): string => {
+    if (partRuleForm.rate <= 0) return 'Commission rate must be greater than 0'
+    if (partRuleForm.commission_type === 'PERCENTAGE' && partRuleForm.rate > 100) return 'Percentage cannot exceed 100%'
+    // If office stock + percentage + we have selected item — warn if > profit margin
+    if (
+      selectedInventoryItem &&
+      partRuleForm.commission_type === 'PERCENTAGE' &&
+      (partRuleForm.part_source_filter === '' || partRuleForm.part_source_filter === 'OFFICE_STOCK')
+    ) {
+      const profitPct = selectedInventoryItem.selling_price > 0
+        ? (selectedInventoryItem.selling_price - selectedInventoryItem.cost_price) / selectedInventoryItem.selling_price * 100
+        : 0
+      if (partRuleForm.rate > profitPct && profitPct > 0) {
+        return `⚠️ Commission rate (${partRuleForm.rate}%) exceeds profit margin (${profitPct.toFixed(1)}%) for office stock parts. Commission should come from profit only.`
+      }
+    }
+    return ''
+  }
+
   const savePartRule = async () => {
+    setPartRuleErr('')
+    const validationError = validatePartRule()
+    if (validationError) { setPartRuleErr(validationError); return }
     if (!detail) return
     setPartRuleSaving(true)
     try {
@@ -149,7 +500,7 @@ export default function CommissionGroups() {
         await commissionsAPI.addPartRule(detail.id, payload)
         toast.success('Part Rule Added', 'Spare part commission rule created.')
       }
-      setShowPartRuleForm(false); setEditingPartRule(null)
+      setShowPartRuleForm(false); setEditingPartRule(null); setSelectedInventoryItem(null)
       await reloadPartRules(detail.id)
     } catch (e: any) {
       toast.error('Error', e.response?.data?.detail || 'Save failed')
@@ -189,9 +540,7 @@ export default function CommissionGroups() {
     } catch {} finally { setAssigning(false) }
   }
 
-  const deleteGroup = async (g: Group) => {
-    setConfirmDelete(g)
-  }
+  const deleteGroup = (g: Group) => setConfirmDelete(g)
   const confirmDeleteGroup = async () => {
     if (!confirmDelete) return
     try {
@@ -204,11 +553,21 @@ export default function CommissionGroups() {
   }
 
   // ── Rule helpers ─────────────────────────────────────────────────────────────
-  const addRule    = () => setRules(r => [...r, { service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }])
-  const removeRule = (i: number) => setRules(r => r.filter((_, idx) => idx !== i))
-  const updateRule = (i: number, k: keyof GroupRule, v: any) => setRules(r => r.map((row, idx) => idx === i ? { ...row, [k]: v } : row))
+  const addRule = () => {
+    setRules(r => [...r, { service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }])
+    setRuleServices(rs => [...rs, null])
+  }
+  const removeRule = (i: number) => {
+    setRules(r => r.filter((_, idx) => idx !== i))
+    setRuleServices(rs => rs.filter((_, idx) => idx !== i))
+  }
+  const updateRule = (i: number, k: keyof GroupRule, v: any) =>
+    setRules(r => r.map((row, idx) => idx === i ? { ...row, [k]: v } : row))
+  const setRuleService = (i: number, svc: Service|null) => {
+    setRuleServices(rs => rs.map((s, idx) => idx === i ? svc : s))
+    updateRule(i, 'service_id', svc?.id || '')
+  }
 
-  // Techs not yet in this group
   const assignedIds = detail?.technicians?.map((t: any) => t.id) || []
   const unassigned = allTechs.filter(t =>
     !assignedIds.includes(t.id) &&
@@ -220,7 +579,7 @@ export default function CommissionGroups() {
     <div style={{ padding: '24px 28px' }}>
       <PageHeader
         title="Commission Groups"
-        subtitle="Define per-service commission rules and assign technicians"
+        subtitle="Define per-service and per-part commission rules and assign technicians"
         actions={<button className="btn btn-primary" onClick={openCreate}>+ New Group</button>}
       />
       <div style={{ height: 20 }} />
@@ -232,7 +591,7 @@ export default function CommissionGroups() {
           <div style={{ fontSize: 40, marginBottom: 12 }}>💰</div>
           <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>No commission groups yet</div>
           <div style={{ fontSize: 13, marginBottom: 20 }}>
-            Create groups to define how much commission each technician earns per service.
+            Create groups to define how much commission each technician earns per service and spare part.
           </div>
           <button className="btn btn-primary" onClick={openCreate}>+ Create First Group</button>
         </div>
@@ -240,52 +599,40 @@ export default function CommissionGroups() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
           {groups.map(g => (
             <div key={g.id} className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              {/* Header */}
               <div style={{ padding: '16px 18px', borderBottom: '1px solid #F1F5F9',
                 background: 'linear-gradient(135deg,#EFF6FF,#F8FAFC)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 16, color: '#0F172A' }}>💼 {g.name}</div>
                   {g.description && <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{g.description}</div>}
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <span style={{ fontSize: 11, background: '#DCFCE7', color: '#166534', padding: '2px 8px',
-                    borderRadius: 20, fontWeight: 600 }}>
-                    👥 {g.technician_count} tech{g.technician_count !== 1 ? 's' : ''}
-                  </span>
-                </div>
+                <span style={{ fontSize: 11, background: '#DCFCE7', color: '#166534', padding: '2px 8px',
+                  borderRadius: 20, fontWeight: 600, flexShrink: 0 }}>
+                  👥 {g.technician_count} tech{g.technician_count !== 1 ? 's' : ''}
+                </span>
               </div>
 
-              {/* Rules summary */}
               <div style={{ padding: '12px 18px' }}>
                 {g.rules.length === 0 ? (
-                  <div style={{ fontSize: 12, color: '#94A3B8' }}>No rules defined</div>
-                ) : g.rules.slice(0, 4).map((r, i) => {
-                  const svc = services.find(s => s.id === r.service_id)
-                  return (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      fontSize: 13, padding: '5px 0', borderBottom: '1px solid #F8FAFC' }}>
-                      <span style={{ color: '#374151', flex: 1 }}>🔧 {svc?.name || '—'}</span>
-                      {r.domain_id && <span style={{ fontSize: 11, color: '#7C3AED', background: '#F5F3FF',
-                        padding: '1px 6px', borderRadius: 10, marginRight: 6 }}>Domain</span>}
-                      <span style={{ fontWeight: 700, color: '#059669', flexShrink: 0 }}>
-                        {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate}`}
-                      </span>
-                    </div>
-                  )
-                })}
-                {g.rules.length > 4 && (
-                  <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>
-                    +{g.rules.length - 4} more rules
+                  <div style={{ fontSize: 12, color: '#94A3B8' }}>No service rules defined</div>
+                ) : g.rules.slice(0, 4).map((r, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    fontSize: 13, padding: '5px 0', borderBottom: '1px solid #F8FAFC' }}>
+                    <span style={{ color: '#374151', flex: 1 }}>🔧 {r.service_id ? '(service)' : '—'}</span>
+                    {r.domain_id && <span style={{ fontSize: 11, color: '#7C3AED', background: '#F5F3FF',
+                      padding: '1px 6px', borderRadius: 10, marginRight: 6 }}>Domain</span>}
+                    <span style={{ fontWeight: 700, color: '#059669', flexShrink: 0 }}>
+                      {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate}`}
+                    </span>
                   </div>
+                ))}
+                {g.rules.length > 4 && (
+                  <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>+{g.rules.length - 4} more rules</div>
                 )}
               </div>
 
-              {/* Actions */}
               <div style={{ padding: '10px 18px', borderTop: '1px solid #F1F5F9',
                 display: 'flex', gap: 8, background: '#FAFAFA' }}>
-                <button className="btn btn-primary btn-sm" onClick={() => openDetail(g)}>
-                  👥 Manage Technicians
-                </button>
+                <button className="btn btn-primary btn-sm" onClick={() => openDetail(g)}>👥 Manage</button>
                 <button className="btn btn-secondary btn-sm" onClick={() => openEdit(g)}>✏️ Edit</button>
                 <button className="btn btn-secondary btn-sm" onClick={() => deleteGroup(g)}
                   style={{ marginLeft: 'auto', color: '#EF4444', border: '1px solid #FECACA' }}>🗑️</button>
@@ -315,68 +662,92 @@ export default function CommissionGroups() {
             </div>
           </div>
 
-          {/* Rules */}
+          {/* Service Rules */}
           <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', textTransform: 'uppercase',
             letterSpacing: '0.06em', marginBottom: 10, paddingBottom: 6, borderBottom: '2px solid #EFF6FF' }}>
-            Commission Rules per Service
+            🔧 Commission Rules per Service
           </div>
-          <div style={{ fontSize: 12, color: '#64748B', marginBottom: 14 }}>
-            💡 Price used for commission: Domain city price → City price → Service base price (in priority order)
+          <div style={{ fontSize: 12, color: '#64748B', marginBottom: 14, background: '#F8FAFC', padding: '8px 12px', borderRadius: 6 }}>
+            💡 Commission priority: Domain city price → City override → Base price<br/>
+            Search and select a service to see its full price structure before setting the rate.
           </div>
 
           {rules.map((r, i) => (
-            <div key={i} style={{ marginBottom: 10, background: '#F8FAFC', borderRadius: 8,
-              padding: '12px 14px', border: '1px solid #E2E8F0' }}>
-              {/* Row 1: Service + Domain */}
+            <div key={i} style={{ marginBottom: 14, background: '#F8FAFC', borderRadius: 10,
+              padding: '14px 16px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>Rule #{i + 1}</span>
+                <button onClick={() => removeRule(i)} disabled={rules.length === 1}
+                  style={{ background: 'none', border: '1px solid #FECACA', color: '#EF4444', borderRadius: 6,
+                    padding: '4px 8px', cursor: 'pointer', fontSize: 12, opacity: rules.length === 1 ? 0.4 : 1 }}>
+                  ✕ Remove
+                </button>
+              </div>
+
+              {/* Row 1: Service search + Domain */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                 <div>
-                  <Label>Service *</Label>
-                  <select className="input" value={r.service_id}
-                    onChange={e => updateRule(i, 'service_id', e.target.value)}>
-                    <option value="">Select service…</option>
-                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
+                  <Label>Service * — Search to select</Label>
+                  <ServiceSearchBox
+                    value={ruleServices[i] || null}
+                    onChange={svc => setRuleService(i, svc)}
+                    placeholder="Type to search services…"
+                  />
                 </div>
                 <div>
                   <Label>Service Domain (optional)</Label>
                   <select className="input" value={r.domain_id || ''}
                     onChange={e => updateRule(i, 'domain_id', e.target.value || null)}>
                     <option value="">— All domains —</option>
-                    {domains.length === 0
-                      ? <option disabled value="">Loading domains…</option>
-                      : domains.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)
-                    }
+                    {domains.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
-                  {domains.length === 0 && (
-                    <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 3 }}>
-                      ℹ️ No domains loaded — leave as All domains
-                    </div>
-                  )}
+                  <div style={{ fontSize: 11, color: '#6D28D9', marginTop: 3 }}>
+                    {r.domain_id ? '✅ Domain-scoped: city prices for this domain shown below' : 'ℹ️ No domain filter — all city overrides apply'}
+                  </div>
                 </div>
               </div>
-              {/* Row 2: Type + Rate + Remove */}
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-                <div style={{ flex: 1 }}>
+
+              {/* Price structure panel */}
+              {r.service_id && (
+                <PricePreviewPanel
+                  serviceId={r.service_id}
+                  domainId={r.domain_id}
+                  commissionType={r.commission_type}
+                  rate={r.rate}
+                />
+              )}
+
+              {/* Row 2: Type + Rate */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10 }}>
+                <div>
                   <Label>Commission Type</Label>
                   <select className="input" value={r.commission_type}
                     onChange={e => updateRule(i, 'commission_type', e.target.value)}>
-                    <option value="PERCENTAGE">% Percentage</option>
+                    <option value="PERCENTAGE">% Percentage of service price</option>
                     <option value="FLAT">₹ Flat Amount</option>
                   </select>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <Label>{r.commission_type === 'PERCENTAGE' ? 'Rate (%)' : 'Amount (₹)'}</Label>
-                  <input className="input" type="number" min={0} step={r.commission_type === 'PERCENTAGE' ? 0.5 : 1}
-                    value={r.rate} onChange={e => updateRule(i, 'rate', parseFloat(e.target.value) || 0)} />
+                <div>
+                  <Label>{r.commission_type === 'PERCENTAGE' ? 'Rate (%) — must be > 0' : 'Amount (₹) — must be > 0'}</Label>
+                  <input className="input" type="number" min={0}
+                    max={r.commission_type === 'PERCENTAGE' ? 100 : undefined}
+                    step={r.commission_type === 'PERCENTAGE' ? 0.5 : 1}
+                    value={r.rate}
+                    onChange={e => {
+                      let v = parseFloat(e.target.value) || 0
+                      if (r.commission_type === 'PERCENTAGE' && v > 100) v = 100
+                      updateRule(i, 'rate', v)
+                    }} />
+                  {r.commission_type === 'PERCENTAGE' && r.rate > 100 && (
+                    <div style={{ fontSize: 11, color: '#DC2626', marginTop: 2 }}>⚠️ Cannot exceed 100%</div>
+                  )}
                 </div>
-                <button onClick={() => removeRule(i)} disabled={rules.length === 1}
-                  style={{ background: 'none', border: '1px solid #FECACA', color: '#EF4444', borderRadius: 6,
-                    padding: '7px 10px', cursor: 'pointer', flexShrink: 0 }}>✕ Remove</button>
               </div>
             </div>
           ))}
+
           <button className="btn btn-secondary btn-sm" onClick={addRule} style={{ marginBottom: 20 }}>
-            + Add Service Rule
+            + Add Another Service Rule
           </button>
 
           {err && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 14px',
@@ -392,211 +763,261 @@ export default function CommissionGroups() {
       )}
 
       {/* ═══════════════════════════════════════
-          DETAIL / ASSIGN TECHNICIANS DRAWER
+          DETAIL / TECHNICIANS / PART RULES
       ═══════════════════════════════════════ */}
       {detail && (
-        <Modal title={`${detail.name} — Technicians`} onClose={() => setDetail(null)} size="xl">
+        <Modal title={`${detail.name} — Manage`} onClose={() => setDetail(null)} size="xl">
           {detailLoading ? (
             <div style={{ textAlign: 'center', padding: 40 }}><Spinner /></div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-              {/* Assigned technicians */}
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', marginBottom: 10,
-                  textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Assigned ({detail.technicians?.length || 0})
-                </div>
-                {(detail.technicians || []).length === 0 ? (
-                  <div style={{ color: '#94A3B8', fontSize: 13, padding: 16, textAlign: 'center',
-                    background: '#F8FAFC', borderRadius: 8, border: '2px dashed #E2E8F0' }}>
-                    No technicians assigned yet
+            <>
+              {/* Technician assignment grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+                {/* Assigned technicians */}
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', marginBottom: 10,
+                    textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Assigned ({detail.technicians?.length || 0})
                   </div>
-                ) : (detail.technicians || []).map((t: any) => (
-                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-                    background: '#F8FAFC', borderRadius: 8, marginBottom: 8, border: '1px solid #E2E8F0' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#EFF6FF',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontWeight: 700, color: brand, fontSize: 14, flexShrink: 0 }}>
-                      {t.name.charAt(0)}
+                  {(detail.technicians || []).length === 0 ? (
+                    <div style={{ color: '#94A3B8', fontSize: 13, padding: 16, textAlign: 'center',
+                      background: '#F8FAFC', borderRadius: 8, border: '2px dashed #E2E8F0' }}>
+                      No technicians assigned yet
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#0F172A' }}>{t.name}</div>
-                      <div style={{ fontSize: 11, color: '#64748B' }}>{t.mobile} · {t.technician_code || '—'}</div>
-                    </div>
-                    <button onClick={() => removeTech(t.id)} disabled={assigning}
-                      style={{ background: 'none', border: '1px solid #FECACA', color: '#EF4444',
-                        borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 12 }}>
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {/* Add technicians */}
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', marginBottom: 10,
-                  textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Add Technician
-                </div>
-                <input className="input" placeholder="Search by name or mobile…"
-                  value={assignSearch} onChange={e => setAssignSearch(e.target.value)}
-                  style={{ marginBottom: 10 }} />
-                <div style={{ maxHeight: 340, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {unassigned.slice(0, 20).map(t => (
-                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                      background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0' }}>
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#EFF6FF',
+                  ) : (detail.technicians || []).map((t: any) => (
+                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                      background: '#F8FAFC', borderRadius: 8, marginBottom: 8, border: '1px solid #E2E8F0' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#EFF6FF',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontWeight: 700, color: brand, fontSize: 13 }}>
+                        fontWeight: 700, color: brand, fontSize: 14, flexShrink: 0 }}>
                         {t.name.charAt(0)}
                       </div>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{t.name}</div>
-                        <div style={{ fontSize: 11, color: '#64748B' }}>{t.mobile}</div>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: '#0F172A' }}>{t.name}</div>
+                        <div style={{ fontSize: 11, color: '#64748B' }}>{t.mobile} · {t.technician_code || '—'}</div>
                       </div>
-                      <button className="btn btn-primary btn-sm" onClick={() => assignTech(t.id)} disabled={assigning}>
-                        {assigning ? '…' : '+ Assign'}
+                      <button onClick={() => removeTech(t.id)} disabled={assigning}
+                        style={{ background: 'none', border: '1px solid #FECACA', color: '#EF4444',
+                          borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 12 }}>
+                        Remove
                       </button>
                     </div>
                   ))}
-                  {unassigned.length === 0 && (
-                    <div style={{ color: '#94A3B8', fontSize: 12, textAlign: 'center', padding: 20 }}>
-                      {assignSearch ? 'No matching technicians' : 'All technicians already assigned'}
-                    </div>
-                  )}
+                </div>
+
+                {/* Add technicians */}
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', marginBottom: 10,
+                    textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Add Technician
+                  </div>
+                  <input className="input" placeholder="Search by name or mobile…"
+                    value={assignSearch} onChange={e => setAssignSearch(e.target.value)}
+                    style={{ marginBottom: 10 }} />
+                  <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {unassigned.slice(0, 20).map(t => (
+                      <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                        background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#EFF6FF',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 700, color: brand, fontSize: 13 }}>
+                          {t.name.charAt(0)}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{t.name}</div>
+                          <div style={{ fontSize: 11, color: '#64748B' }}>{t.mobile}</div>
+                        </div>
+                        <button className="btn btn-primary btn-sm" onClick={() => assignTech(t.id)} disabled={assigning}>
+                          {assigning ? '…' : '+ Assign'}
+                        </button>
+                      </div>
+                    ))}
+                    {unassigned.length === 0 && (
+                      <div style={{ color: '#94A3B8', fontSize: 12, textAlign: 'center', padding: 20 }}>
+                        {assignSearch ? 'No matching technicians' : 'All technicians already assigned'}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+
+              {/* Service commission rules summary */}
+              <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>
+                  🔧 Service Commission Rules
+                </div>
+                {(detail.rules || []).length === 0 ? (
+                  <div style={{ fontSize: 12, color: '#94A3B8' }}>No service rules — edit the group to add.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {(detail.rules || []).map((r: any, i: number) => (
+                      <div key={i} style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8,
+                        padding: '6px 12px', fontSize: 13 }}>
+                        <span style={{ color: '#374151' }}>🔧 {r.service_id || '—'}</span>
+                        {r.domain_id && <span style={{ color: '#7C3AED', marginLeft: 6, fontSize: 11 }}>Domain-specific</span>}
+                        <span style={{ fontWeight: 700, color: '#059669', marginLeft: 8 }}>
+                          {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Spare Part Commission Rules ─────────────────────────────── */}
+              <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #E2E8F0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase' }}>
+                      🔩 Spare Part Commission Rules
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                      Office Stock: technician gets commission from profit. Market Purchase: technician paid full cost, gets commission from selling price.
+                    </div>
+                  </div>
+                  <button className="btn btn-secondary btn-sm" onClick={() => {
+                    setEditingPartRule(null)
+                    setPartRuleForm({ part_name_match: '', part_source_filter: '', commission_type: 'PERCENTAGE', rate: 0 })
+                    setSelectedInventoryItem(null)
+                    setPartRuleErr('')
+                    setShowPartRuleForm(true)
+                  }}>+ Add Part Rule</button>
+                </div>
+
+                {partRulesLoading ? (
+                  <Spinner />
+                ) : partRules.length === 0 ? (
+                  <div style={{ fontSize: 12, color: '#94A3B8', padding: '12px', background: '#F8FAFC', borderRadius: 8, border: '2px dashed #E2E8F0', textAlign: 'center' }}>
+                    No spare part commission rules yet. Add rules to auto-calculate commission on parts.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {partRules.map((r: any) => (
+                      <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0F172A' }}>
+                            🔩 {r.part_name_match ? `Parts matching "${r.part_name_match}"` : 'All spare parts'}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                            Source: {r.part_source_filter
+                              ? (r.part_source_filter === 'OFFICE_STOCK' ? '🏢 Office Stock only' : '🛒 Market Purchase only')
+                              : '🔁 Both (Office + Market)'}
+                            &nbsp;·&nbsp; Commission: <b style={{ color: '#059669' }}>
+                              {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate} flat`}
+                            </b>
+                          </div>
+                        </div>
+                        <button className="btn btn-secondary btn-sm" onClick={() => {
+                          setEditingPartRule(r)
+                          setPartRuleForm({
+                            part_name_match: r.part_name_match || '',
+                            part_source_filter: r.part_source_filter || '',
+                            commission_type: r.commission_type,
+                            rate: r.rate,
+                          })
+                          setSelectedInventoryItem(null)
+                          setPartRuleErr('')
+                          setShowPartRuleForm(true)
+                        }}>✏️</button>
+                        <button onClick={() => deletePartRule(r.id)}
+                          style={{ background: 'none', border: '1px solid #FECACA', color: '#EF4444', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Part rule form */}
+                {showPartRuleForm && (
+                  <div style={{ marginTop: 14, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: '16px 18px' }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: '#374151', marginBottom: 12 }}>
+                      {editingPartRule ? '✏️ Edit Part Rule' : '➕ New Part Commission Rule'}
+                    </div>
+
+                    {/* Inventory item search to preview prices */}
+                    <div style={{ marginBottom: 14 }}>
+                      <Label>🔍 Preview Part Prices (optional — search to see cost/profit before setting commission)</Label>
+                      <InventorySearchBox onSelect={item => setSelectedInventoryItem(item)} />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                      <div>
+                        <Label>Part Name Filter (keyword match, optional)</Label>
+                        <input className="input" placeholder="e.g. Compressor, Capacitor (blank = all parts)"
+                          value={partRuleForm.part_name_match}
+                          onChange={e => setPartRuleForm(f => ({ ...f, part_name_match: e.target.value }))} />
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>Leave blank to match ALL spare parts in this group</div>
+                      </div>
+                      <div>
+                        <Label>Part Source</Label>
+                        <select className="input" value={partRuleForm.part_source_filter}
+                          onChange={e => setPartRuleForm(f => ({ ...f, part_source_filter: e.target.value }))}>
+                          <option value="">🔁 Both (Office Stock + Market Purchase)</option>
+                          <option value="OFFICE_STOCK">🏢 Office Stock only — commission from profit</option>
+                          <option value="MARKET_PURCHASE">🛒 Market Purchase only — tech buys, commission from selling price</option>
+                        </select>
+                        <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>
+                          {partRuleForm.part_source_filter === 'OFFICE_STOCK'
+                            ? '🏢 Office provides the part. Commission should be ≤ profit margin.'
+                            : partRuleForm.part_source_filter === 'MARKET_PURCHASE'
+                            ? '🛒 Tech purchases the part at market rate. They keep their purchase cost; commission is from selling price.'
+                            : 'Applies to both office-issued and market-purchased parts.'}
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Commission Type</Label>
+                        <select className="input" value={partRuleForm.commission_type}
+                          onChange={e => setPartRuleForm(f => ({ ...f, commission_type: e.target.value }))}>
+                          <option value="PERCENTAGE">% Percentage of selling price</option>
+                          <option value="FLAT">₹ Flat per unit</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label>{partRuleForm.commission_type === 'PERCENTAGE' ? 'Rate (%)' : 'Amount (₹) per unit'}</Label>
+                        <input className="input" type="number" min={0}
+                          max={partRuleForm.commission_type === 'PERCENTAGE' ? 100 : undefined}
+                          step={0.5}
+                          value={partRuleForm.rate}
+                          onChange={e => {
+                            let v = parseFloat(e.target.value) || 0
+                            if (partRuleForm.commission_type === 'PERCENTAGE' && v > 100) v = 100
+                            setPartRuleForm(f => ({ ...f, rate: v }))
+                          }} />
+                        {/* Live commission preview if item selected */}
+                        {selectedInventoryItem && partRuleForm.rate > 0 && (
+                          <div style={{ fontSize: 11, color: '#059669', marginTop: 3, fontWeight: 600 }}>
+                            Preview: ₹{partRuleForm.commission_type === 'PERCENTAGE'
+                              ? (selectedInventoryItem.selling_price * partRuleForm.rate / 100).toFixed(2)
+                              : partRuleForm.rate
+                            } per unit on this item
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {partRuleErr && (
+                      <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 14px',
+                        borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+                        ⚠️ {partRuleErr}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-primary btn-sm" onClick={savePartRule} disabled={partRuleSaving}>
+                        {partRuleSaving ? <Spinner size="sm" /> : editingPartRule ? '💾 Update Rule' : '✅ Add Rule'}
+                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => {
+                        setShowPartRuleForm(false); setEditingPartRule(null)
+                        setSelectedInventoryItem(null); setPartRuleErr('')
+                      }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
           )}
-
-          {/* Service commission rules */}
-          <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #E2E8F0' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>
-              🔧 Service Commission Rules
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {(detail.rules || []).map((r: any, i: number) => {
-                const svc = services.find(s => s.id === r.service_id)
-                return (
-                  <div key={i} style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8,
-                    padding: '6px 12px', fontSize: 13 }}>
-                    <span style={{ color: '#374151' }}>🔧 {svc?.name || '—'}</span>
-                    {r.domain_id && <span style={{ color: '#7C3AED', marginLeft: 6, fontSize: 11 }}>Domain-specific</span>}
-                    <span style={{ fontWeight: 700, color: '#059669', marginLeft: 8 }}>
-                      {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate}`}
-                    </span>
-                    <span style={{ fontSize: 11, color: '#64748B', marginLeft: 6 }}>
-                      of {r.commission_type === 'PERCENTAGE' ? 'service price' : 'flat'}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Spare part commission rules */}
-          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #E2E8F0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase' }}>
-                🔩 Spare Part Commission Rules
-              </div>
-              <button className="btn btn-secondary btn-sm" onClick={() => {
-                setEditingPartRule(null)
-                setPartRuleForm({ part_name_match: '', part_source_filter: '', commission_type: 'PERCENTAGE', rate: 0 })
-                setShowPartRuleForm(true)
-              }}>+ Add Part Rule</button>
-            </div>
-
-            {partRulesLoading ? (
-              <Spinner />
-            ) : partRules.length === 0 ? (
-              <div style={{ fontSize: 12, color: '#94A3B8', padding: '12px', background: '#F8FAFC', borderRadius: 8, border: '2px dashed #E2E8F0', textAlign: 'center' }}>
-                No spare part commission rules yet. Add rules to auto-calculate commission on parts during settlement.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {partRules.map((r: any) => (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 8 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#0F172A' }}>
-                        🔩 {r.part_name_match ? `Parts matching "${r.part_name_match}"` : 'All spare parts'}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
-                        Source: {r.part_source_filter
-                          ? (r.part_source_filter === 'OFFICE_STOCK' ? '🏢 Office Stock only' : '🛒 Market Purchase only')
-                          : '🔁 Both (Office + Market)'}
-                        &nbsp;·&nbsp; Commission: <b style={{ color: '#059669' }}>
-                          {r.commission_type === 'PERCENTAGE' ? `${r.rate}%` : `₹${r.rate} flat`}
-                        </b>
-                      </div>
-                    </div>
-                    <button className="btn btn-secondary btn-sm" onClick={() => {
-                      setEditingPartRule(r)
-                      setPartRuleForm({
-                        part_name_match: r.part_name_match || '',
-                        part_source_filter: r.part_source_filter || '',
-                        commission_type: r.commission_type,
-                        rate: r.rate,
-                      })
-                      setShowPartRuleForm(true)
-                    }}>✏️</button>
-                    <button onClick={() => deletePartRule(r.id)}
-                      style={{ background: 'none', border: '1px solid #FECACA', color: '#EF4444', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 12 }}>🗑️</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Part rule form */}
-            {showPartRuleForm && (
-              <div style={{ marginTop: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '14px 16px' }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: '#374151', marginBottom: 12 }}>
-                  {editingPartRule ? '✏️ Edit Part Rule' : '➕ Add Part Rule'}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                  <div>
-                    <Label>Part Name Filter (optional)</Label>
-                    <input className="input" placeholder="e.g. Compressor, Capacitor (blank = all parts)"
-                      value={partRuleForm.part_name_match}
-                      onChange={e => setPartRuleForm(f => ({ ...f, part_name_match: e.target.value }))} />
-                    <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>Leave blank to match all spare parts</div>
-                  </div>
-                  <div>
-                    <Label>Part Source</Label>
-                    <select className="input" value={partRuleForm.part_source_filter}
-                      onChange={e => setPartRuleForm(f => ({ ...f, part_source_filter: e.target.value }))}>
-                      <option value="">Both (Office + Market)</option>
-                      <option value="OFFICE_STOCK">🏢 Office Stock only</option>
-                      <option value="MARKET_PURCHASE">🛒 Market Purchase only</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label>Commission Type</Label>
-                    <select className="input" value={partRuleForm.commission_type}
-                      onChange={e => setPartRuleForm(f => ({ ...f, commission_type: e.target.value }))}>
-                      <option value="PERCENTAGE">% Percentage of sale price</option>
-                      <option value="FLAT">₹ Flat per unit</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label>{partRuleForm.commission_type === 'PERCENTAGE' ? 'Rate (%)' : 'Amount (₹) per unit'}</Label>
-                    <input className="input" type="number" min={0} step={0.5}
-                      value={partRuleForm.rate}
-                      onChange={e => setPartRuleForm(f => ({ ...f, rate: parseFloat(e.target.value) || 0 }))} />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-primary btn-sm" onClick={savePartRule} disabled={partRuleSaving}>
-                    {partRuleSaving ? <Spinner size="sm" /> : editingPartRule ? '💾 Update Rule' : '✅ Add Rule'}
-                  </button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => { setShowPartRuleForm(false); setEditingPartRule(null) }}>Cancel</button>
-                </div>
-              </div>
-            )}
-          </div>
         </Modal>
       )}
-      {/* Toast notifications */}
+
       <Toast toasts={toasts} onRemove={removeToast} />
 
       {/* Confirm delete dialog */}

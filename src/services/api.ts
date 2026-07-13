@@ -293,6 +293,8 @@ export const commissionsAPI = {
   addPartRule:       (groupId: string, d: any)                => api.post(`/commissions/groups/${groupId}/part-rules`, d),
   updatePartRule:    (groupId: string, ruleId: string, d: any) => api.put(`/commissions/groups/${groupId}/part-rules/${ruleId}`, d),
   deletePartRule:    (groupId: string, ruleId: string)        => api.delete(`/commissions/groups/${groupId}/part-rules/${ruleId}`),
+  servicePricePreview: (serviceId: string, domainId?: string|null) =>
+    api.get('/commissions/service-price-preview', { params: { service_id: serviceId, ...(domainId ? { domain_id: domainId } : {}) } }),
 }
 
 // ── Wallet ─────────────────────────────────────────────────────
