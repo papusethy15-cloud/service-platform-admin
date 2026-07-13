@@ -19,6 +19,7 @@
  *  ✅ Multi-booking in one session (different service or address)
  *  ✅ "Continue to New Booking" after reviewing history (admin-aware flow)
  */
+import { todayIST, fmtDateIST, fmtDateTimeIST, fmtTimeIST } from "../../lib/tz";
 import { useEffect, useState } from 'react'
 import {
   api, customersAPI, bookingsAPI, domainsAPI, servicePricingAPI,
@@ -784,7 +785,7 @@ export default function BookingModal({
               <label style={lbl}>Scheduled Date *</label>
               <input className="input" type="date" value={form.scheduled_date}
                 onChange={e => set('scheduled_date', e.target.value)}
-                min={new Date().toISOString().split('T')[0]} />
+                min={todayIST()} />
             </div>
             <div>
               <label style={lbl}>Time Slot</label>

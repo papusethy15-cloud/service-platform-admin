@@ -9,6 +9,7 @@
  *   - CONVERTED_TO_INVOICE quotation shows a "Start New Repair" cycle badge
  */
 
+import { todayIST, fmtDateIST, fmtDateTimeIST, fmtTimeIST } from "../../lib/tz";
 import { useEffect, useState, useCallback } from 'react'
 import { useBookingWebSocket } from '@/hooks/useAdminWebSocket'
 import { useAuthStore } from '@/store/authStore'
@@ -428,7 +429,10 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
       try {
         // Record the actual outstanding balance amount so P&L tracking is accurate.
         // The reference_number = 'PAY_LATER' marks it as a future collection, NOT yet collected.
-        const dueDateTime = new Date(`${payDue}T23:59:00`).toISOString()
+        // Treat payDue as IST date, convert 23:59 IST to UTC ISO
+        const _istOffset = 5.5 * 60 * 60 * 1000;
+        const _dueMidIST = new Date(new Date(`${payDue}T23:59:00`).getTime() - _istOffset);
+        const dueDateTime = _dueMidIST.toISOString()
         await paymentsAPI.cash({
           invoice_id:            payTargetInvoice.id,
           amount:                invBalance,
@@ -1530,7 +1534,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
           {payMethod === 'PAY_LATER' && (
             <div style={{ marginBottom: 12 }}>
               <label style={lbl}>Collection Date *</label>
-              <input className="input" type="date" min={new Date().toISOString().split('T')[0]}
+              <input className="input" type="date" min={todayIST()}
                 value={payDue} onChange={e => setPayDue(e.target.value)} />
               <div style={{ fontSize: 11, color: '#F59E0B', marginTop: 3 }}>
                 ⚠ Pay Later schedules future collection. Outstanding balance tracked for platform P&L.

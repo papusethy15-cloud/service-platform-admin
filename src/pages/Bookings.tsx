@@ -15,6 +15,7 @@
  *  ✅ New Booking → BookingModal (3-step: mobile → preview → form)
  *  ✅ Status color coding + priority badges
  */
+import { todayIST, fmtDateIST, fmtDateTimeIST, fmtTimeIST } from "../lib/tz";
 import { useEffect, useState, useCallback } from 'react'
 import { bookingsAPI, assignmentsAPI } from '@/services/api'
 import PageHeader from '@/components/layout/PageHeader'
@@ -935,7 +936,7 @@ export default function Bookings() {
               className="input" type="date"
               value={editForm.scheduled_date}
               onChange={e => setEditForm(f => ({ ...f, scheduled_date: e.target.value }))}
-              min={new Date().toISOString().split('T')[0]}
+              min={todayIST()}
             />
           </div>
 
@@ -1019,7 +1020,7 @@ export default function Bookings() {
           </div>
           <div style={{ marginBottom: 14 }}>
             <label style={lbl}>New Date *</label>
-            <input className="input" type="date" value={reschDate} onChange={e => setReschDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
+            <input className="input" type="date" value={reschDate} onChange={e => setReschDate(e.target.value)} min={todayIST()} />
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={lbl}>New Time Slot</label>
