@@ -13,6 +13,7 @@ interface AttendanceRecord {
   id: string
   technician_id: string
   technician_name?: string
+  technician_mobile?: string
   date: string
   check_in: string | null
   check_out: string | null
@@ -141,7 +142,7 @@ export default function Attendance() {
         const r = await attendanceAPI.list(params)
         const d = r.data.data
         const items: AttendanceRecord[] = (d.items || []).map((a: any) => ({
-          ...a, technician_name: techMap[a.technician_id] || a.technician_id?.slice(0, 8)
+          ...a, technician_name: a.technician_name || techMap[a.technician_id] || '—'
         }))
         setRecords(items); setPages(d.pages || 1); setTotal(d.total || 0)
         // Compute stats from page items
@@ -156,7 +157,7 @@ export default function Attendance() {
         const r = await leavesAPI.list(params)
         const d = r.data.data
         const items: LeaveRecord[] = (d.items || []).map((l: any) => ({
-          ...l, technician_name: techMap[l.technician_id] || l.technician_id?.slice(0, 8)
+          ...l, technician_name: l.technician_name || techMap[l.technician_id] || '—'
         }))
         setLeaves(items); setPages(d.pages || 1); setTotal(d.total || 0)
         const pending = items.filter(i => i.status === 'PENDING').length
@@ -323,7 +324,7 @@ export default function Attendance() {
                           </div>
                           <div>
                             <div style={{ fontWeight: 600, fontSize: 13, color: '#0F172A' }}>{r.technician_name || '—'}</div>
-                            <div style={{ fontSize: 11, color: '#94A3B8' }}>{r.technician_id?.slice(0, 8)}…</div>
+                            <div style={{ fontSize: 11, color: '#94A3B8' }}>{r.technician_mobile || r.technician_id?.slice(0, 8) + '…'}</div>
                           </div>
                         </div>
                       </td>
