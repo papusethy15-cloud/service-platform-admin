@@ -8,6 +8,25 @@ import Spinner from '@/components/ui/Spinner'
 const STATUS_OPTIONS = ['', 'GENERATED', 'SENT', 'PARTIALLY_PAID', 'PAID', 'CANCELLED']
 const TYPE_OPTIONS = ['', 'GST_B2C', 'GST_B2B', 'NON_GST']
 
+// ── Helper: download a PDF blob with auth token ──────────────────────────────
+async function downloadInvoicePDF(inv: any) {
+  try {
+    const r = await invoicesAPI.pdf(inv.id)
+    const blob = new Blob([r.data], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${inv.invoice_number || inv.id}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    alert('Failed to download PDF. Please try again.')
+    console.error('Invoice PDF download error:', err)
+  }
+}
+
 export default function Invoices() {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -21,6 +40,7 @@ export default function Invoices() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [sendingEmail, setSendingEmail] = useState<string | null>(null)
+  const [downloadingPDF, setDownloadingPDF] = useState<string | null>(null)
 
   // Use refs to always have latest filter values in fetchData
   const searchRef = useRef(search)
@@ -92,8 +112,14 @@ export default function Invoices() {
     catch { setDetail(inv) }
   }
 
-  const handleDownloadPDF = (inv: any) => {
-    window.open(`/api/v1/invoices/${inv.id}/pdf`, '_blank')
+  // ── Authenticated PDF download (uses Bearer token via axios) ──────────────
+  const handleDownloadPDF = async (inv: any) => {
+    setDownloadingPDF(inv.id)
+    try {
+      await downloadInvoicePDF(inv)
+    } finally {
+      setDownloadingPDF(null)
+    }
   }
 
   const handleSendEmail = async (inv: any) => {
@@ -201,7 +227,7 @@ export default function Invoices() {
                     <th>Balance</th>
                     <th>Status</th>
                     <th>Date</th>
-                    <th style={{ width: 170 }}>Actions</th>
+                    <th style={{ width: 190 }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -249,7 +275,14 @@ export default function Invoices() {
                         <td>
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                             <button className="btn btn-secondary btn-sm" onClick={() => openDetail(inv)}>View</button>
-                            <button className="btn btn-secondary btn-sm" onClick={() => handleDownloadPDF(inv)} title="Download PDF">PDF</button>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => handleDownloadPDF(inv)}
+                              disabled={downloadingPDF === inv.id}
+                              title="Download PDF"
+                            >
+                              {downloadingPDF === inv.id ? <Spinner size="sm" /> : '⬇ PDF'}
+                            </button>
                             <button className="btn btn-secondary btn-sm"
                               disabled={sendingEmail === inv.id}
                               onClick={() => handleSendEmail(inv)}
@@ -310,7 +343,13 @@ export default function Invoices() {
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button className="btn btn-primary" onClick={() => handleDownloadPDF(detail)}>Download PDF</button>
+            <button
+              className="btn btn-primary"
+              onClick={() => handleDownloadPDF(detail)}
+              disabled={downloadingPDF === detail.id}
+            >
+              {downloadingPDF === detail.id ? <Spinner size="sm" /> : '⬇ Download PDF'}
+            </button>
             <button className="btn btn-secondary" onClick={() => handleSendEmail(detail)}
               disabled={sendingEmail === detail.id}>
               {sendingEmail === detail.id ? 'Sending…' : 'Send Email'}

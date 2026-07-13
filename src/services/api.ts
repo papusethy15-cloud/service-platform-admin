@@ -49,12 +49,10 @@ export const bookingsAPI = {
   get:        (id: string)                       => api.get(`/bookings/${id}`),
   create:     async (d: any) => {
     const res = await api.post('/bookings', d);
-    // POST /bookings returns only {id, booking_number, status} — re-fetch full detail
-    // so service_name, address_str, etc. are available in the UI immediately.
     try {
       const id = res.data?.data?.id;
       if (id) return await api.get(`/bookings/${id}`);
-    } catch { /* fallback to creation response */ }
+    } catch { }
     return res;
   },
   update:     (id: string, d: any)               => api.put(`/bookings/${id}`, d),
@@ -138,7 +136,6 @@ export const servicesAPI = {
   updateCategory: (id: string, d: any)  => api.put(`/services/categories/${id}`, d),
   deleteCategory: (id: string)          => api.delete(`/services/categories/${id}`),
   cityPrices:     (serviceId: string)   => api.get(`/services/${serviceId}/city-prices`),
-  // Tech-suggested pending services
   pending:        ()                    => api.get('/services/pending'),
   verifyService:  (quotationId: string, serviceItemId: string, d: any) =>
                     api.post(`/quotations/${quotationId}/services/${serviceItemId}/verify`, d),
@@ -184,6 +181,8 @@ export const quotationsAPI = {
   removeAppliance:  (id: string, label: string) => api.delete(`/quotations/${id}/appliances/${encodeURIComponent(label)}`),
   markRepeat:       (id: string, d: any) => api.post(`/quotations/${id}/appliances/repeat`, d),
   repeatCheck:      (quotationId: string, customerId: string) => api.get(`/quotations/${quotationId}/repeat-check/${customerId}`),
+  // PDF download — fetches backend-generated PDF with auth token
+  pdf:              (id: string) => api.get(`/quotations/${id}/pdf`, { responseType: 'blob' }),
 }
 
 // ── Invoices ───────────────────────────────────────────────────
@@ -219,7 +218,6 @@ export const cashCollectionsAPI = {
 
 // ── Inventory ──────────────────────────────────────────────────
 export const inventoryAPI = {
-  // Items
   list:             (params?: any)        => api.get('/inventory', { params }),
   search:           (q: string, p?: any)  => api.get('/inventory', { params: { search: q, per_page: 50, ...p } }),
   pendingVerify:    ()                    => api.get('/inventory', { params: { pending_verify: true, per_page: 100 } }),
@@ -230,22 +228,14 @@ export const inventoryAPI = {
   deactivate:       (id: string)          => api.delete(`/inventory/${id}`),
   lowStock:         ()                    => api.get('/inventory/low-stock'),
   stockSummary:     (params?: any)        => api.get('/inventory/stock', { params }),
-
-  // Categories
   categories:       ()                    => api.get('/inventory/categories'),
   createCategory:   (d: any)             => api.post('/inventory/categories', d),
   updateCategory:   (id: string, d: any) => api.put(`/inventory/categories/${id}`, d),
-
-  // Brands
   brands:           ()                    => api.get('/inventory/brands'),
-
-  // Warehouses
   warehouses:       ()                    => api.get('/inventory/warehouses'),
   createWarehouse:  (d: any)             => api.post('/inventory/warehouses', d),
   updateWarehouse:  (id: string, d: any) => api.put(`/inventory/warehouses/${id}`, d),
   warehouseStock:   (id: string, p?: any)=> api.get(`/inventory/warehouses/${id}/stock`, { params: p }),
-
-  // Stock movements
   opening:          (d: any)             => api.post('/inventory/opening', d),
   adjust:           (d: any)             => api.post('/inventory/adjust', d),
   transfer:         (d: any)             => api.post('/inventory/transfer', d),
@@ -254,30 +244,20 @@ export const inventoryAPI = {
   consume:          (d: any)             => api.post('/inventory/consume', d),
   damage:           (d: any)             => api.post('/inventory/damage', d),
   movements:        (params?: any)       => api.get('/inventory/movements', { params }),
-
-  // Technician stock
   techStock:        (techId: string)     => api.get(`/inventory/technician/${techId}`),
   itemWarehouseStock: (itemId: string)    => api.get(`/inventory/item-warehouse-stock/${itemId}`),
   techStockHistory: (techId: string, p?: any) => api.get(`/inventory/technician/${techId}/history`, { params: p }),
-
-  // Reorder
   reorderRules:     ()                   => api.get('/inventory/reorder-rules'),
   upsertReorderRule:(d: any)             => api.post('/inventory/reorder-rules', d),
-
-  // Challans
   challans:         (p?: any)      => api.get('/inventory/challans', { params: p }),
   getChallan:       (id: string)   => api.get(`/inventory/challans/${id}`),
   createChallan:    (d: any)       => api.post('/inventory/challans', d),
   receiveChallan:   (id: string, d: any) => api.post(`/inventory/challans/${id}/receive`, d),
-  // Direct sales
   directSales:      (p?: any)      => api.get('/inventory/direct-sales', { params: p }),
   createDirectSale: (d: any)       => api.post('/inventory/direct-sale', d),
-  // Purchase Orders
   purchaseOrders:    (p?: any)      => api.get('/inventory/purchase-orders', { params: p }),
   getPurchaseOrder:  (id: string)   => api.get(`/inventory/purchase-orders/${id}`),
   createPurchaseOrder: (d: any)     => api.post('/inventory/purchase-orders', d),
-
-  // Booking parts
   bookingParts:     (bookingId: string) => api.get(`/inventory/booking-parts/${bookingId}`),
   bookingConsume:   (d: any)       => api.post('/inventory/booking-consume', d),
 }
@@ -291,8 +271,6 @@ export const commissionsAPI = {
   pay:               (id: string)                          => api.post(`/commissions/${id}/pay`, {}),
   bulkApprove:       (ids: string[])                       => api.post('/commissions/bulk-approve', { ids }),
   bulkPay:           (ids: string[])                       => api.post('/commissions/bulk-pay', { ids }),
-
-  // Commission Groups
   listGroups:        ()                                    => api.get('/commissions/groups'),
   createGroup:       (d: any)                              => api.post('/commissions/groups', d),
   getGroup:          (id: string)                          => api.get(`/commissions/groups/${id}`),
@@ -301,7 +279,6 @@ export const commissionsAPI = {
   assignTechnician:  (groupId: string, techId: string)     => api.post(`/commissions/groups/${groupId}/assign`, { technician_id: techId }),
   removeAssignment:  (groupId: string, techId: string)     => api.delete(`/commissions/groups/${groupId}/assign/${techId}`),
   groupsForTech:     (techId: string)                      => api.get(`/commissions/groups-for-technician/${techId}`),
-  // Part commission rules
   listPartRules:     (groupId: string)                        => api.get(`/commissions/groups/${groupId}/part-rules`),
   addPartRule:       (groupId: string, d: any)                => api.post(`/commissions/groups/${groupId}/part-rules`, d),
   updatePartRule:    (groupId: string, ruleId: string, d: any) => api.put(`/commissions/groups/${groupId}/part-rules/${ruleId}`, d),
@@ -317,10 +294,8 @@ export const walletAPI = {
   credit:           (d: any)                        => api.post('/wallet/credit', d),
   debit:            (d: any)                        => api.post('/wallet/debit', d),
   withdraw:         (d: any)                        => api.post('/wallet/withdraw', d),
-  // Withdrawal requests (admin)
   withdrawalRequests: (params?: any)               => api.get('/wallet/withdrawal-requests', { params }),
   reviewWithdrawal: (id: string, d: any)           => api.post(`/wallet/withdrawal-requests/${id}/review`, d),
-  // Settlements list
   settlements:      (params?: any)                 => api.get('/wallet/settlements', { params }),
 }
 
@@ -473,25 +448,20 @@ export const refundsAPI = {
 
 // ── Appliances ─────────────────────────────────────────────────
 export const appliancesAPI = {
-  // Catalogue — public
   categories:      ()                  => api.get('/appliances/categories'),
   brands:          (params?: any)      => api.get('/appliances/brands', { params }),
   types:           (params?: any)      => api.get('/appliances/types', { params }),
   domainCatalogue: (slug: string)      => api.get(`/appliances/domain/${slug}`),
-  // Brand CRUD
   createBrand:     (d: any)            => api.post('/appliances/brands', d),
   updateBrand:     (id: string, d: any) => api.put(`/appliances/brands/${id}`, d),
-  // Type CRUD
   createType:      (d: any)            => api.post('/appliances/types', d),
   updateType:      (id: string, d: any) => api.put(`/appliances/types/${id}`, d),
-  // Customer appliance CRUD
   list:            (params?: any)      => api.get('/appliances', { params }),
   get:             (id: string)        => api.get(`/appliances/${id}`),
   add:             (d: any)            => api.post('/appliances', d),
   update:          (id: string, d: any) => api.put(`/appliances/${id}`, d),
   remove:          (id: string)        => api.delete(`/appliances/${id}`),
   byCustomer:      (cid: string)       => api.get(`/appliances/customer/${cid}`),
-  // Sub-resources
   history:         (id: string, params?: any) => api.get(`/appliances/${id}/history`, { params }),
   warranty:        (id: string)        => api.get(`/appliances/${id}/warranty`),
   amc:             (id: string)        => api.get(`/appliances/${id}/amc`),

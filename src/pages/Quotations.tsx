@@ -1640,6 +1640,7 @@ export function QuotationEditor({
 
       {/* Action bar */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: '1px solid #F1F5F9', paddingTop: 14 }}>
+        <DownloadQuotationPDFButton quotation={q} />
         {canEdit && (
           <button className="btn btn-primary btn-sm" onClick={doSubmit} disabled={saving}>
             📤 Submit for Approval
@@ -2151,6 +2152,39 @@ export function QuotationFromBookingModal({
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Authenticated Quotation PDF download button (used in QuotationEditor) ──────
+function DownloadQuotationPDFButton({ quotation }: { quotation: any }) {
+  const [loading, setLoading] = useState(false)
+  if (!quotation?.id) return null
+  const handleClick = async () => {
+    setLoading(true)
+    try {
+      const r    = await quotationsAPI.pdf(quotation.id)
+      const blob = new Blob([r.data], { type: 'application/pdf' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `${quotation.quotation_number || quotation.id}.pdf`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    } catch (err) {
+      console.error('Quotation PDF download error:', err)
+      alert('Failed to download PDF. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+  return (
+    <button
+      className="btn btn-secondary btn-sm"
+      style={{ background: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}
+      onClick={handleClick}
+      disabled={loading}>
+      {loading ? <Spinner size="sm" /> : '📄 Download PDF'}
+    </button>
+  )
+}
+
 // PDF Generation Helpers
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -2407,6 +2441,8 @@ export default function Quotations() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
+  const [downloadingPDF, setDownloadingPDF] = useState<string | null>(null)
+
   const userRole = 'ADMIN'
 
   const fetchList = useCallback(async () => {
@@ -2442,7 +2478,24 @@ export default function Quotations() {
     catch { setDetail(q) }
   }
 
-  const downloadQuotationPDF = (q: any) => generateQuotationPDF(q)
+  const downloadQuotationPDF = async (q: any) => {
+    setDownloadingPDF(q.id)
+    try {
+      const r = await quotationsAPI.pdf(q.id)
+      const blob = new Blob([r.data], { type: 'application/pdf' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `${q.quotation_number || q.id}.pdf`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    } catch (err) {
+      console.error('Quotation PDF download error:', err)
+      alert('Failed to download PDF. Please try again.')
+    } finally {
+      setDownloadingPDF(null)
+    }
+  }
 
   const searchBookings = async () => {
     if (!bookingSearch.trim()) return
@@ -2571,8 +2624,9 @@ export default function Quotations() {
                           <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => openDetail(q)}>View</button>
                           <button className="btn btn-secondary btn-sm"
                             style={{ fontSize: 11, background: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}
-                            onClick={() => downloadQuotationPDF(q)}>
-                            📄 PDF
+                            onClick={() => downloadQuotationPDF(q)}
+                            disabled={downloadingPDF === q.id}>
+                            {downloadingPDF === q.id ? <Spinner size="sm" /> : '📄 PDF'}
                           </button>
                           {q.status === 'SUBMITTED' && ['ADMIN', 'SUPER_ADMIN', 'CCO'].includes(userRole) && (
                             <button className="btn btn-secondary btn-sm"
