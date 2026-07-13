@@ -341,11 +341,25 @@ export const notificationsAPI = {
 }
 
 // ── Reports ────────────────────────────────────────────────────
+// Helper: convert { year, month } to start_date/end_date strings the backend expects
+function toDateRange(params?: any) {
+  if (!params) return {}
+  const { year, month, ...rest } = params
+  if (year && month) {
+    const y = Number(year), m = Number(month)
+    const start = new Date(y, m - 1, 1)
+    const end = new Date(y, m, 0) // last day of month
+    const fmt = (d: Date) => d.toISOString().slice(0, 10)
+    return { ...rest, start_date: fmt(start), end_date: fmt(end) }
+  }
+  return params
+}
+
 export const reportsAPI = {
-  revenue:     (params?: any) => api.get('/reports/revenue', { params }),
-  gst:         (params?: any) => api.get('/reports/gst', { params }),
-  customers:   (params?: any) => api.get('/reports/customers', { params }),
-  technician:  (params?: any) => api.get('/reports/technician', { params }),
+  revenue:     (params?: any) => api.get('/reports/revenue', { params: toDateRange(params) }),
+  gst:         (params?: any) => api.get('/reports/gst', { params: toDateRange(params) }),
+  customers:   (params?: any) => api.get('/reports/customers', { params: toDateRange(params) }),
+  technician:  (params?: any) => api.get('/reports/technician', { params: toDateRange(params) }),
 }
 
 // ── GST ────────────────────────────────────────────────────────

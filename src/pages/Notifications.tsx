@@ -40,14 +40,33 @@ export default function Notifications() {
   const handleSend = async (e: any) => {
     e.preventDefault(); setSending(true); setSendErr(''); setSendSuccess(false)
     try {
-      const payload: any = {
-        title: sendForm.title, body: sendForm.body,
-        channel: sendForm.channel, audience: sendForm.audience,
+      if (sendForm.audience === 'SPECIFIC_USER') {
+        // Single user — POST /notifications/send (requires user_id UUID)
+        if (!sendForm.user_id.trim()) {
+          setSendErr('User ID is required for SPECIFIC_USER audience')
+          setSending(false)
+          return
+        }
+        await notificationsAPI.send({
+          user_id: sendForm.user_id.trim(),
+          title: sendForm.title,
+          body: sendForm.body,
+          channel: sendForm.channel,
+        })
+      } else {
+        // Audience-based — POST /notifications/bulk (no user_id required)
+        const roleMap: Record<string, string> = {
+          ALL_CUSTOMERS: 'CUSTOMER',
+          ALL_TECHNICIANS: 'TECHNICIAN',
+          CUSTOM_SEGMENT: 'CUSTOMER',
+        }
+        await notificationsAPI.bulk({
+          role: roleMap[sendForm.audience] || undefined,
+          title: sendForm.title,
+          body: sendForm.body,
+          channel: sendForm.channel,
+        })
       }
-      if (sendForm.audience === 'SPECIFIC_USER' && sendForm.user_id) payload.user_id = sendForm.user_id
-      if (sendForm.booking_id) payload.booking_id = sendForm.booking_id
-      if (sendForm.scheduled_at) payload.scheduled_at = sendForm.scheduled_at
-      await notificationsAPI.send(payload)
       setSendSuccess(true)
       setSendForm({ title: '', body: '', channel: 'PUSH', audience: 'ALL_CUSTOMERS', user_id: '', booking_id: '', scheduled_at: '' })
     } catch (ex: any) { setSendErr(ex.response?.data?.detail || 'Failed to send notification') } finally { setSending(false) }
