@@ -209,6 +209,8 @@ export const paymentsAPI = {
   bankTransfer:     (d: any)       => api.post('/payments/bank-transfer', d),
   generateLink:     (d: any)       => api.post('/payments/generate-link', d),
   generateQR:       (d: any)       => api.post('/payments/generate-qr', d),
+  cancelPendingDupes: (id: string) => api.post(`/payments/${id}/cancel-pending-dupes`, {}),
+  cancelSingle:     (id: string)   => api.post(`/payments/${id}/cancel`, {}),
 }
 
 // ── Razorpay (admin view) ──────────────────────────────────────

@@ -6,7 +6,7 @@ import Modal from '@/components/ui/Modal'
 import Spinner from '@/components/ui/Spinner'
 
 const METHOD_OPTIONS = ['', 'CASH', 'RAZORPAY', 'UPI', 'BANK_TRANSFER']
-const STATUS_OPTIONS = ['', 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED']
+const STATUS_OPTIONS = ['', 'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED', 'CANCELLED']
 
 const METHOD_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   CASH:          { bg: '#DCFCE7', color: '#16A34A', label: 'Cash' },
@@ -16,33 +16,57 @@ const METHOD_STYLE: Record<string, { bg: string; color: string; label: string }>
 }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
-  SUCCESS:  { bg: '#DCFCE7', color: '#16A34A' },
-  PENDING:  { bg: '#FEF3C7', color: '#D97706' },
-  FAILED:   { bg: '#FEE2E2', color: '#DC2626' },
-  REFUNDED: { bg: '#F3E8FF', color: '#7C3AED' },
+  SUCCESS:   { bg: '#DCFCE7', color: '#16A34A' },
+  PENDING:   { bg: '#FEF3C7', color: '#D97706' },
+  FAILED:    { bg: '#FEE2E2', color: '#DC2626' },
+  REFUNDED:  { bg: '#F3E8FF', color: '#7C3AED' },
+  CANCELLED: { bg: '#F1F5F9', color: '#64748B' },
+}
+
+// Detect which booking IDs have multiple SUCCESS payments (need refund)
+function getDuplicateSuccessBookings(items: any[]): Set<string> {
+  const countMap: Record<string, number> = {}
+  for (const p of items) {
+    if (p.status === 'SUCCESS' && p.booking_id) {
+      countMap[p.booking_id] = (countMap[p.booking_id] || 0) + 1
+    }
+  }
+  return new Set(Object.entries(countMap).filter(([, c]) => c > 1).map(([id]) => id))
 }
 
 export default function Payments() {
-  const [items, setItems] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState(1)
-  const [pages, setPages] = useState(1)
-  const [total, setTotal] = useState(0)
-  const [detail, setDetail] = useState<any>(null)
+  const [items, setItems]           = useState<any[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [page, setPage]             = useState(1)
+  const [pages, setPages]           = useState(1)
+  const [total, setTotal]           = useState(0)
+
+  // Modals
+  const [detail, setDetail]         = useState<any>(null)
+  const [cancelModal, setCancelModal] = useState<any>(null)   // single PENDING cancel
+  const [cancelDupesModal, setCancelDupesModal] = useState<any>(null) // cancel all dupes from SUCCESS
   const [refundModal, setRefundModal] = useState<any>(null)
-  const [refundForm, setRefundForm] = useState({ amount: '', reason: '', method: 'ORIGINAL', upi_id: '', bank_account: '', bank_ifsc: '', beneficiary_name: '' })
-  const [refunding, setRefunding] = useState(false)
-  const [refundErr, setRefundErr] = useState('')
-  const [refundOk, setRefundOk] = useState('')
 
-  // Filter state
-  const [search, setSearch] = useState('')
-  const [method, setMethod] = useState('')
-  const [status, setStatus] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  // Cancel state
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelErr, setCancelErr]   = useState('')
+  const [cancelOk, setCancelOk]     = useState('')
 
-  // Refs for latest filter values
+  // Refund form
+  const [refundForm, setRefundForm] = useState({
+    amount: '', reason: '', method: 'ORIGINAL',
+    upi_id: '', bank_account: '', bank_ifsc: '', beneficiary_name: ''
+  })
+  const [refunding, setRefunding]   = useState(false)
+  const [refundErr, setRefundErr]   = useState('')
+  const [refundOk, setRefundOk]     = useState('')
+
+  // Filters
+  const [search, setSearch]         = useState('')
+  const [method, setMethod]         = useState('')
+  const [status, setStatus]         = useState('')
+  const [dateFrom, setDateFrom]     = useState('')
+  const [dateTo, setDateTo]         = useState('')
   const refs = useRef({ search: '', method: '', status: '', dateFrom: '', dateTo: '' })
 
   const fetchData = useCallback(async (pg: number, f?: typeof refs.current) => {
@@ -50,27 +74,22 @@ export default function Payments() {
     try {
       const fi = f ?? refs.current
       const params: any = { page: pg, per_page: 20 }
-      if (fi.search) params.search = fi.search
-      if (fi.method) params.method = fi.method
-      if (fi.status) params.status = fi.status
+      if (fi.search)   params.search    = fi.search
+      if (fi.method)   params.method    = fi.method
+      if (fi.status)   params.status    = fi.status
       if (fi.dateFrom) params.date_from = fi.dateFrom
-      if (fi.dateTo) params.date_to = fi.dateTo
-
+      if (fi.dateTo)   params.date_to   = fi.dateTo
       const r = await paymentsAPI.history(params)
       const d = r.data?.data
       if (d) {
         setItems(d.items || [])
         setPages(d.pages || 1)
         setTotal(d.total || 0)
-      } else {
-        setItems([])
-      }
+      } else { setItems([]) }
     } catch (err) {
       console.error('Failed to load payments:', err)
       setItems([])
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }, [])
 
   useEffect(() => { fetchData(page) }, [page, fetchData])
@@ -90,8 +109,50 @@ export default function Payments() {
     fetchData(1, f)
   }
 
+  // ── Cancel single PENDING ──────────────────────────────────────────────────
+  const openCancel = (p: any) => {
+    setCancelErr(''); setCancelOk('')
+    setCancelModal(p)
+  }
+
+  const confirmCancel = async () => {
+    if (!cancelModal) return
+    setCancelling(true); setCancelErr(''); setCancelOk('')
+    try {
+      await paymentsAPI.cancelSingle(cancelModal.id)
+      setCancelOk('Transaction cancelled successfully.')
+      fetchData(page)
+    } catch (e: any) {
+      setCancelErr(e.response?.data?.detail || 'Failed to cancel. Please try again.')
+    } finally { setCancelling(false) }
+  }
+
+  // ── Cancel all PENDING dupes for a booking (from SUCCESS row) ─────────────
+  const openCancelDupes = (p: any) => {
+    setCancelErr(''); setCancelOk('')
+    setCancelDupesModal(p)
+  }
+
+  const confirmCancelDupes = async () => {
+    if (!cancelDupesModal) return
+    setCancelling(true); setCancelErr(''); setCancelOk('')
+    try {
+      const r = await paymentsAPI.cancelPendingDupes(cancelDupesModal.id)
+      const count = r.data?.data?.cancelled_count ?? 0
+      setCancelOk(`${count} pending duplicate transaction(s) cancelled.`)
+      fetchData(page)
+    } catch (e: any) {
+      setCancelErr(e.response?.data?.detail || 'Failed to cancel duplicates.')
+    } finally { setCancelling(false) }
+  }
+
+  // ── Refund ────────────────────────────────────────────────────────────────
   const openRefund = (p: any) => {
-    setRefundForm({ amount: String(p.amount || ''), reason: '', method: p.payment_method === 'RAZORPAY' ? 'RAZORPAY' : 'CASH', upi_id: '', bank_account: '', bank_ifsc: '', beneficiary_name: '' })
+    setRefundForm({
+      amount: String(p.amount || ''), reason: '',
+      method: p.payment_method === 'RAZORPAY' ? 'RAZORPAY' : 'CASH',
+      upi_id: '', bank_account: '', bank_ifsc: '', beneficiary_name: ''
+    })
     setRefundErr(''); setRefundOk(''); setRefundModal(p)
   }
 
@@ -100,14 +161,14 @@ export default function Payments() {
     setRefunding(true); setRefundErr(''); setRefundOk('')
     try {
       const cr = await refundsAPI.create({
-        booking_id: refundModal.booking_id,
-        payment_id: refundModal.id,
-        amount: +refundForm.amount,
-        reason: refundForm.reason,
-        refund_method: refundForm.method,
-        upi_id: refundForm.upi_id || undefined,
-        bank_account: refundForm.bank_account || undefined,
-        bank_ifsc: refundForm.bank_ifsc || undefined,
+        booking_id:       refundModal.booking_id,
+        payment_id:       refundModal.id,
+        amount:           +refundForm.amount,
+        reason:           refundForm.reason,
+        refund_method:    refundForm.method,
+        upi_id:           refundForm.upi_id || undefined,
+        bank_account:     refundForm.bank_account || undefined,
+        bank_ifsc:        refundForm.bank_ifsc || undefined,
         beneficiary_name: refundForm.beneficiary_name || undefined,
       })
       const refundId = cr.data?.data?.id
@@ -124,25 +185,32 @@ export default function Payments() {
     } finally { setRefunding(false) }
   }
 
+  // ── Formatters ─────────────────────────────────────────────────────────────
   const fmt = (n: any) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-  const fmtDate = (d: string) => d ? new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  const fmtDate = (d: string) => d ? new Date(d).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   }) : '—'
-  const fmtDateShort = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata',
-    day: '2-digit', month: 'short', year: 'numeric'
+  const fmtDateShort = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric'
   }) : '—'
 
-  // Summary
-  const successAmt = items.filter(i => i.status === 'SUCCESS').reduce((s, i) => s + (i.amount || 0), 0)
-  const pendingAmt = items.filter(i => i.status === 'PENDING').reduce((s, i) => s + (i.amount || 0), 0)
+  // ── Derived data ──────────────────────────────────────────────────────────
+  const successAmt   = items.filter(i => i.status === 'SUCCESS').reduce((s, i) => s + (i.amount || 0), 0)
+  const pendingAmt   = items.filter(i => i.status === 'PENDING').reduce((s, i) => s + (i.amount || 0), 0)
   const successCount = items.filter(i => i.status === 'SUCCESS').length
+  const dupSuccessBookings = getDuplicateSuccessBookings(items)
+
+  // PENDING rows that have a SUCCESS sibling on the same booking (on this page)
+  const successBookingIds = new Set(
+    items.filter(i => i.status === 'SUCCESS').map(i => i.booking_id)
+  )
 
   return (
     <div style={{ padding: '24px 28px' }}>
       <PageHeader title="Payments" subtitle={`${total} transactions`} />
       <div style={{ height: 16 }} />
 
-      {/* Advanced Filter Bar */}
+      {/* Filter Bar */}
       <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 220px' }}>
@@ -182,10 +250,10 @@ export default function Payments() {
       {/* Summary Cards */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
         {[
-          { label: 'Total Transactions', value: total, color: '#1B4FD8', icon: '📋' },
-          { label: 'Collected (page)', value: fmt(successAmt), color: '#059669', icon: '✅' },
-          { label: 'Pending (page)', value: fmt(pendingAmt), color: '#D97706', icon: '⏳' },
-          { label: 'Success Count (page)', value: successCount, color: '#7C3AED', icon: '🎯' },
+          { label: 'Total Transactions', value: total,           color: '#1B4FD8', icon: '📋' },
+          { label: 'Collected (page)',   value: fmt(successAmt), color: '#059669', icon: '✅' },
+          { label: 'Pending (page)',     value: fmt(pendingAmt), color: '#D97706', icon: '⏳' },
+          { label: 'Success Count',      value: successCount,    color: '#7C3AED', icon: '🎯' },
         ].map(s => (
           <div key={s.label} className="card" style={{ flex: 1, padding: '14px 16px', borderLeft: `3px solid ${s.color}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -199,7 +267,7 @@ export default function Payments() {
         ))}
       </div>
 
-      {/* Payments Table */}
+      {/* Table */}
       <div className="card">
         {loading ? (
           <div style={{ padding: 60, textAlign: 'center' }}><Spinner /></div>
@@ -220,7 +288,7 @@ export default function Payments() {
                     <th>Status</th>
                     <th>Paid At</th>
                     <th>Date</th>
-                    <th style={{ width: 100 }}>Actions</th>
+                    <th style={{ width: 130 }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -233,8 +301,14 @@ export default function Payments() {
                   ) : items.map((p: any, idx: number) => {
                     const mStyle = METHOD_STYLE[p.payment_method] || { bg: '#F1F5F9', color: '#64748B', label: p.payment_method }
                     const sStyle = STATUS_STYLE[p.status] || { bg: '#F1F5F9', color: '#64748B' }
+
+                    // Is this a PENDING row that has a SUCCESS sibling on same booking?
+                    const isPendingWithSuccess = p.status === 'PENDING' && p.booking_id && successBookingIds.has(p.booking_id)
+                    // Is this a SUCCESS row where same booking has another SUCCESS too?
+                    const isDuplicateSuccess = p.status === 'SUCCESS' && p.booking_id && dupSuccessBookings.has(p.booking_id)
+
                     return (
-                      <tr key={p.id}>
+                      <tr key={p.id} style={isPendingWithSuccess ? { background: '#FFFBEB' } : isDuplicateSuccess ? { background: '#FEF2F2' } : {}}>
                         <td style={{ color: '#94A3B8', fontSize: 12, fontWeight: 600 }}>{(page - 1) * 20 + idx + 1}</td>
                         <td>
                           <span
@@ -284,12 +358,41 @@ export default function Payments() {
                           {fmtDateShort(p.created_at)}
                         </td>
                         <td>
-                          <div style={{ display: 'flex', gap: 6 }}>
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                            {/* View always */}
                             <button className="btn btn-secondary btn-sm" onClick={() => setDetail(p)}>View</button>
+
+                            {/* PENDING: Cancel single */}
+                            {p.status === 'PENDING' && (
+                              <button onClick={() => openCancel(p)}
+                                style={{ fontSize: 11, color: '#92400E', background: '#FEF3C7', border: 'none', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+                                Cancel
+                              </button>
+                            )}
+
+                            {/* SUCCESS with PENDING dupes: Cancel all dupes */}
+                            {p.status === 'SUCCESS' && isPendingWithSuccess === false && successBookingIds.has(p.booking_id) === false && (
+                              // nothing extra
+                              null
+                            )}
+                            {p.status === 'SUCCESS' && (() => {
+                              // Check if there are PENDING siblings for same booking on this page
+                              const hasPendingSiblings = items.some(
+                                i => i.id !== p.id && i.booking_id === p.booking_id && i.status === 'PENDING'
+                              )
+                              return hasPendingSiblings ? (
+                                <button onClick={() => openCancelDupes(p)}
+                                  style={{ fontSize: 11, color: '#B45309', background: '#FEF9C3', border: '1px solid #FDE047', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+                                  Cancel Dupes
+                                </button>
+                              ) : null
+                            })()}
+
+                            {/* SUCCESS: Refund */}
                             {p.status === 'SUCCESS' && (
                               <button onClick={() => openRefund(p)}
                                 style={{ fontSize: 11, color: '#DC2626', background: '#FEE2E2', border: 'none', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
-                                Refund
+                                {isDuplicateSuccess ? '⚠ Refund' : 'Refund'}
                               </button>
                             )}
                           </div>
@@ -305,9 +408,100 @@ export default function Payments() {
         )}
       </div>
 
-      {/* Refund Modal */}
+      {/* ── Cancel Single PENDING Modal ─────────────────────────────────── */}
+      {cancelModal && (
+        <Modal title="Cancel Transaction" onClose={() => { setCancelModal(null); setCancelErr(''); setCancelOk('') }}>
+          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E', marginBottom: 6 }}>⚠ Confirm Cancellation</div>
+            <div style={{ fontSize: 12, color: '#78350F', lineHeight: 1.6 }}>
+              You are about to cancel a <b>PENDING</b> transaction.<br />
+              This cannot be undone once confirmed.
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            {[
+              ['Transaction #', cancelModal.transaction_number || '—'],
+              ['Booking #',     cancelModal.booking_number || '—'],
+              ['Customer',      cancelModal.customer_name || '—'],
+              ['Amount',        fmt(cancelModal.amount)],
+              ['Method',        cancelModal.payment_method || '—'],
+              ['Status',        cancelModal.status || '—'],
+            ].map(([k, v]) => (
+              <div key={k} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px' }}>
+                <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{k}</div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          {cancelErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 12px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{cancelErr}</div>}
+          {cancelOk  && <div style={{ background: '#F0FDF4', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>✅ {cancelOk}</div>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            {!cancelOk && (
+              <button className="btn btn-primary" onClick={confirmCancel} disabled={cancelling}
+                style={{ background: '#DC2626', borderColor: '#DC2626' }}>
+                {cancelling ? <Spinner size="sm" /> : 'Yes, Cancel Transaction'}
+              </button>
+            )}
+            <button className="btn btn-secondary" onClick={() => { setCancelModal(null); setCancelErr(''); setCancelOk('') }}>
+              {cancelOk ? 'Close' : 'Keep It'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Cancel Duplicate PENDINGs Modal (from SUCCESS row) ─────────── */}
+      {cancelDupesModal && (
+        <Modal title="Cancel Duplicate Pending Transactions" onClose={() => { setCancelDupesModal(null); setCancelErr(''); setCancelOk('') }}>
+          <div style={{ background: '#FEF9C3', border: '1px solid #FDE047', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#713F12', marginBottom: 6 }}>Cancel All Pending Duplicates</div>
+            <div style={{ fontSize: 12, color: '#78350F', lineHeight: 1.7 }}>
+              Booking <b style={{ fontFamily: 'monospace' }}>{cancelDupesModal.booking_number}</b> has multiple PENDING transactions
+              because the customer attempted Razorpay payment multiple times.<br /><br />
+              Since <b style={{ fontFamily: 'monospace' }}>{cancelDupesModal.transaction_number}</b> is already <b>SUCCESS</b>,
+              all other PENDING transactions for this booking will be marked <b>CANCELLED</b>.
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            {[
+              ['Success Transaction', cancelDupesModal.transaction_number || '—'],
+              ['Booking #',           cancelDupesModal.booking_number || '—'],
+              ['Customer',            cancelDupesModal.customer_name || '—'],
+              ['Paid Amount',         fmt(cancelDupesModal.amount)],
+            ].map(([k, v]) => (
+              <div key={k} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px' }}>
+                <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{k}</div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          {cancelErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 12px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{cancelErr}</div>}
+          {cancelOk  && <div style={{ background: '#F0FDF4', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>✅ {cancelOk}</div>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            {!cancelOk && (
+              <button className="btn btn-primary" onClick={confirmCancelDupes} disabled={cancelling}>
+                {cancelling ? <Spinner size="sm" /> : 'Cancel All Duplicates'}
+              </button>
+            )}
+            <button className="btn btn-secondary" onClick={() => { setCancelDupesModal(null); setCancelErr(''); setCancelOk('') }}>
+              {cancelOk ? 'Close' : 'Go Back'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Refund Modal ───────────────────────────────────────────────── */}
       {refundModal && (
         <Modal title="Initiate Refund" onClose={() => setRefundModal(null)}>
+          {/* Duplicate SUCCESS warning */}
+          {dupSuccessBookings.has(refundModal.booking_id) && (
+            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#991B1B', marginBottom: 4 }}>⚠ Duplicate Payment Detected</div>
+              <div style={{ fontSize: 12, color: '#7F1D1D', lineHeight: 1.6 }}>
+                Booking <b style={{ fontFamily: 'monospace' }}>{refundModal.booking_number}</b> has <b>multiple SUCCESS payments</b>.
+                The customer was charged more than once. Please refund this duplicate payment immediately.
+              </div>
+            </div>
+          )}
           <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: '#64748B' }}>Payment: <b style={{ fontFamily: 'monospace' }}>{refundModal.transaction_number}</b></div>
             <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>Customer: <b>{refundModal.customer_name}</b> · Booking: <b style={{ fontFamily: 'monospace' }}>{refundModal.booking_number}</b></div>
@@ -375,24 +569,24 @@ export default function Payments() {
         </Modal>
       )}
 
-      {/* Detail Modal */}
+      {/* ── Detail Modal ────────────────────────────────────────────────── */}
       {detail && (
         <Modal title={`Payment — ${detail.transaction_number || detail.id?.slice(0, 12)}`} onClose={() => setDetail(null)}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
             {[
-              ['Transaction #', detail.transaction_number || '—'],
-              ['Invoice #', detail.invoice_number || '—'],
-              ['Booking #', detail.booking_number || '—'],
-              ['Customer', detail.customer_name || '—'],
-              ['Method', detail.payment_method || '—'],
-              ['Status', detail.status || '—'],
-              ['Amount', fmt(detail.amount)],
-              ['Currency', detail.currency || 'INR'],
-              ['Reference #', detail.reference_number || '—'],
-              ['Provider Order', detail.provider_order_id || '—'],
-              ['Provider Payment', detail.provider_payment_id || '—'],
-              ['Paid At', detail.paid_at ? fmtDate(detail.paid_at) : '—'],
-              ['Created At', fmtDate(detail.created_at)],
+              ['Transaction #',   detail.transaction_number || '—'],
+              ['Invoice #',       detail.invoice_number || '—'],
+              ['Booking #',       detail.booking_number || '—'],
+              ['Customer',        detail.customer_name || '—'],
+              ['Method',          detail.payment_method || '—'],
+              ['Status',          detail.status || '—'],
+              ['Amount',          fmt(detail.amount)],
+              ['Currency',        detail.currency || 'INR'],
+              ['Reference #',     detail.reference_number || '—'],
+              ['Provider Order',  detail.provider_order_id || '—'],
+              ['Provider Pmt',    detail.provider_payment_id || '—'],
+              ['Paid At',         detail.paid_at ? fmtDate(detail.paid_at) : '—'],
+              ['Created At',      fmtDate(detail.created_at)],
             ].map(([k, v]) => (
               <div key={k} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px' }}>
                 <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{k}</div>
@@ -412,6 +606,18 @@ export default function Payments() {
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            {detail.status === 'PENDING' && (
+              <button onClick={() => { setDetail(null); openCancel(detail) }}
+                style={{ fontSize: 12, color: '#92400E', background: '#FEF3C7', border: '1px solid #FDE68A', padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>
+                Cancel This Transaction
+              </button>
+            )}
+            {detail.status === 'SUCCESS' && (
+              <button onClick={() => { setDetail(null); openRefund(detail) }}
+                style={{ fontSize: 12, color: '#DC2626', background: '#FEE2E2', border: 'none', padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>
+                Initiate Refund
+              </button>
+            )}
             <button className="btn btn-secondary" onClick={() => setDetail(null)}>Close</button>
           </div>
         </Modal>
