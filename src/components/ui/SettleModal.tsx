@@ -45,12 +45,14 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
   const handleSettle = async () => {
     setSaving(true); setSaveErr('')
     try {
+      // Send override for every row where admin typed a value (matched or unmatched).
+      // Empty override = backend uses its own calculated amount.
       const overrideList = (preview?.line_items || [])
-        .map((item: any, idx: number) =>
-          item.match_status === 'unmatched'
-            ? { item_index: idx, commission_amount: parseFloat(overrides[idx] || '0') || 0 }
-            : null
-        )
+        .map((item: any, idx: number) => {
+          const ov = overrides[idx]
+          if (ov === undefined || ov === '') return null  // no override typed → let backend calculate
+          return { item_index: idx, commission_amount: parseFloat(ov) || 0 }
+        })
         .filter(Boolean)
       await bookingsAPI.settleBooking(bookingId, {
         overrides: overrideList,
@@ -64,11 +66,19 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
     }
   }
 
+  // If admin typed an override for a row, that value wins — whether matched or unmatched.
+  // Empty override = keep auto-calculated commission_amount.
+  const effectiveAmount = (item: any, idx: number): number => {
+    const ov = overrides[idx]
+    if (ov !== undefined && ov !== '') return parseFloat(ov) || 0
+    return item.commission_amount || 0
+  }
+
   const totalCommission = preview
-    ? (preview.line_items || []).reduce((sum: number, item: any, idx: number) => {
-        if (item.match_status === 'unmatched') return sum + (parseFloat(overrides[idx] || '0') || 0)
-        return sum + (item.commission_amount || 0)
-      }, 0)
+    ? (preview.line_items || []).reduce(
+        (sum: number, item: any, idx: number) => sum + effectiveAmount(item, idx),
+        0
+      )
     : 0
 
   const hasUnmatched = preview?.line_items?.some((i: any) => i.match_status === 'unmatched')
@@ -178,11 +188,20 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
                       ? (item.commission_type === 'PERCENTAGE' ? `${item.rate}%` : `₹${item.rate}`)
                       : '—'}
                   </div>
-                  {/* Always show auto-calculated commission amount */}
-                  <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: item.commission_amount != null ? '#059669' : '#F59E0B' }}>
-                    {item.commission_amount != null ? money(item.commission_amount) : 'No rule'}
+                  {/* Commission column: show effective value (override if typed, else auto) */}
+                  <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 700,
+                    color: overrides[idx] !== undefined && overrides[idx] !== '' ? '#7C3AED'
+                          : item.commission_amount != null ? '#059669' : '#F59E0B' }}>
+                    {overrides[idx] !== undefined && overrides[idx] !== ''
+                      ? money(parseFloat(overrides[idx]) || 0)
+                      : item.commission_amount != null ? money(item.commission_amount) : 'No rule'}
+                    {overrides[idx] !== undefined && overrides[idx] !== '' && (
+                      <div style={{ fontSize: 9, color: '#94A3B8', fontWeight: 400 }}>
+                        was {item.commission_amount != null ? money(item.commission_amount) : '—'}
+                      </div>
+                    )}
                   </div>
-                  {/* Override input for every row (useful for matched and unmatched) */}
+                  {/* Override input — clears to reset to auto */}
                   <div style={{ textAlign: 'right' }}>
                     <input
                       type="number" min="0" step="0.01"
@@ -191,9 +210,13 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
                       onChange={e => setOverrides(prev => ({ ...prev, [idx]: e.target.value }))}
                       style={{
                         width: 88, padding: '4px 6px',
-                        border: `1px solid ${isUnmatched ? '#FCD34D' : '#E2E8F0'}`,
+                        border: `1px solid ${
+                          overrides[idx] !== undefined && overrides[idx] !== '' ? '#7C3AED'
+                          : isUnmatched ? '#FCD34D' : '#E2E8F0'
+                        }`,
                         borderRadius: 5, fontSize: 12, textAlign: 'right',
-                        background: isUnmatched ? '#FFFBEB' : '#fff',
+                        background: overrides[idx] !== undefined && overrides[idx] !== '' ? '#F5F3FF'
+                                    : isUnmatched ? '#FFFBEB' : '#fff',
                       }}
                     />
                   </div>
