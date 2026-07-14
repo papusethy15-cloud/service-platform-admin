@@ -207,7 +207,8 @@ function TechnicianReportTab() {
   const [report,   setReport]   = useState<any>(null)
   const [loading,  setLoading]  = useState(false)
   const [techLoad, setTechLoad] = useState(true)
-  const [section,  setSection]  = useState<'bookings' | 'quotations' | 'payments' | 'commissions' | 'ratings'>('bookings')
+  const [section,  setSection]  = useState<'bookings' | 'quotations' | 'payments' | 'commissions' | 'wallet' | 'withdrawals' | 'ratings'>('bookings')
+  const [pdfLoading, setPdfLoading] = useState(false)
 
   // Load technicians for dropdown
   useEffect(() => {
@@ -228,6 +229,26 @@ function TechnicianReportTab() {
     } catch (e: any) {
       alert(e?.response?.data?.detail || 'Failed to generate report')
     } finally { setLoading(false) }
+  }
+
+  const downloadPdf = async () => {
+    if (!techId || !report) return
+    setPdfLoading(true)
+    try {
+      const params: any = { technician_id: techId, period, year }
+      if (period === 'monthly') params.month = month
+      if (period === 'weekly')  params.week  = week
+      const r = await reportsAPI.technicianDetailPdf(params)
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }))
+      const a = document.createElement('a')
+      a.href = url
+      const tech = report?.technician
+      a.download = `report_${(tech?.name || 'technician').replace(/\s+/g, '_').toLowerCase()}_${period}_${year}${period === 'monthly' ? month : period === 'weekly' ? `w${week}` : ''}.pdf`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('PDF download failed. Please try again.')
+    } finally { setPdfLoading(false) }
   }
 
   const secBtn = (key: typeof section, label: string, count?: number) => (
@@ -306,6 +327,13 @@ function TechnicianReportTab() {
             onClick={generateReport} disabled={!techId || loading}>
             {loading ? 'Generating…' : '⚡ Generate Report'}
           </button>
+
+          {report && (
+            <button className="btn" onClick={downloadPdf} disabled={pdfLoading}
+              style={{ height: 36, paddingLeft: 20, paddingRight: 20, background: '#DC2626', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: pdfLoading ? 'not-allowed' : 'pointer', opacity: pdfLoading ? .7 : 1 }}>
+              {pdfLoading ? '⏳ Generating PDF…' : '📥 Download PDF'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -319,7 +347,7 @@ function TechnicianReportTab() {
       )}
 
       {!loading && report && (() => {
-        const { technician: tech, period: pd, summary: s, bookings, quotations, ratings, commissions, commission_summary: cs } = report
+        const { technician: tech, period: pd, summary: s, bookings, quotations, ratings, commissions, commission_summary: cs, wallet, wallet_summary: ws, wallet_transactions: walletTxns, withdrawal_requests: withdrawals } = report
 
         return (
           <>
@@ -377,6 +405,17 @@ function TechnicianReportTab() {
               </div>
             )}
 
+            {/* ── Wallet Summary ── */}
+            {wallet && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
+                <StatCard label="Wallet Balance"      value={INR(wallet.balance)}        color="#1B4FD8"  icon="👛" />
+                <StatCard label="Total Earned"        value={INR(wallet.total_earned)}   color="#059669"  icon="💰" />
+                <StatCard label="Total Withdrawn"     value={INR(wallet.total_withdrawn)} color="#D97706" icon="🏧" />
+                <StatCard label="Period Credits"      value={INR(ws?.credits_in_period || 0)} color="#0891B2" icon="⬆️"
+                  sub={`${ws?.txn_count || 0} transactions`} />
+              </div>
+            )}
+
             {/* ── Payment Split Visual ── */}
             {(s.total_revenue > 0) && (
               <div className="card" style={{ marginBottom: 24, padding: '18px 24px' }}>
@@ -410,6 +449,8 @@ function TechnicianReportTab() {
               {secBtn('quotations',  'Quotations',  s.total_quotations)}
               {secBtn('payments',    'Payments')}
               {secBtn('commissions', 'Commissions', cs?.total_records || 0)}
+              {wallet && secBtn('wallet',      'Wallet Txns', ws?.txn_count || 0)}
+              {wallet && secBtn('withdrawals', 'Withdrawals', ws?.withdrawal_count || 0)}
               {secBtn('ratings',     'Ratings',     s.total_ratings)}
             </div>
 
@@ -542,6 +583,81 @@ function TechnicianReportTab() {
                             <td style={{ fontSize: 12 }}>{c.payout_date ? isoDate(c.payout_date) : '—'}</td>
                           </tr>
                         ))}
+                      </tbody>
+                    </table>
+                }
+              </div>
+            )}
+
+            {/* ── WALLET TRANSACTIONS SECTION ── */}
+            {section === 'wallet' && (
+              <div className="card">
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #F1F5F9', fontWeight: 700, fontSize: 14 }}>
+                  Wallet Transactions ({walletTxns?.length || 0})
+                </div>
+                {(!walletTxns || walletTxns.length === 0)
+                  ? <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8' }}>No wallet transactions in this period</div>
+                  : <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>#</th><th>Type</th><th>Description</th><th>Ref ID</th>
+                          <th>Date</th><th>Amount</th><th>Balance After</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {walletTxns.map((t: any, i: number) => {
+                          const tc = t.type === 'CREDIT' ? '#059669' : t.type === 'DEBIT' || t.type === 'WITHDRAWAL' ? '#DC2626' : '#334155'
+                          return (
+                            <tr key={t.id}>
+                              <td style={{ color: '#94A3B8', fontSize: 11 }}>{i + 1}</td>
+                              <td><span style={{ fontWeight: 700, color: tc, fontSize: 12 }}>{t.type}</span></td>
+                              <td style={{ fontSize: 12, maxWidth: 200 }}>{t.description || '—'}</td>
+                              <td style={{ fontSize: 11, color: '#64748B' }}>{t.reference_id || '—'}</td>
+                              <td style={{ fontSize: 12 }}>{isoDate(t.created_at)}</td>
+                              <td style={{ fontWeight: 700, color: tc }}>{INR(t.amount)}</td>
+                              <td style={{ fontWeight: 600, color: '#334155' }}>{INR(t.balance_after)}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                }
+              </div>
+            )}
+
+            {/* ── WITHDRAWALS SECTION ── */}
+            {section === 'withdrawals' && (
+              <div className="card">
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #F1F5F9', fontWeight: 700, fontSize: 14 }}>
+                  Withdrawal Requests ({withdrawals?.length || 0})
+                </div>
+                {(!withdrawals || withdrawals.length === 0)
+                  ? <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8' }}>No withdrawal requests in this period</div>
+                  : <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>#</th><th>Amount</th><th>Status</th>
+                          <th>UPI / Bank</th><th>Payment Ref</th>
+                          <th>Requested</th><th>Reviewed</th><th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {withdrawals.map((wr: any, i: number) => {
+                          const sc = wr.status === 'APPROVED' ? '#059669' : wr.status === 'REJECTED' ? '#DC2626' : '#D97706'
+                          const dest = wr.upi_id || wr.bank_account || '—'
+                          return (
+                            <tr key={wr.id}>
+                              <td style={{ color: '#94A3B8', fontSize: 11 }}>{i + 1}</td>
+                              <td style={{ fontWeight: 800, color: sc }}>{INR(wr.amount)}</td>
+                              <td><Badge status={wr.status || 'PENDING'} /></td>
+                              <td style={{ fontSize: 11 }}>{String(dest).slice(0, 24)}</td>
+                              <td style={{ fontSize: 11, color: '#64748B' }}>{wr.payment_reference || '—'}</td>
+                              <td style={{ fontSize: 12 }}>{isoDate(wr.created_at)}</td>
+                              <td style={{ fontSize: 12 }}>{wr.reviewed_at ? isoDate(wr.reviewed_at) : '—'}</td>
+                              <td style={{ fontSize: 11, color: '#64748B' }}>{wr.admin_notes || wr.notes || '—'}</td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                 }

@@ -363,7 +363,8 @@ export const reportsAPI = {
   gst:              (params?: any) => api.get('/reports/gst', { params: toDateRange(params) }),
   customers:        (params?: any) => api.get('/reports/customers', { params: toDateRange(params) }),
   technician:       (params?: any) => api.get('/reports/technician', { params: toDateRange(params) }),
-  technicianDetail: (params?: any) => api.get('/reports/technician-detail', { params }),
+  technicianDetail:    (params?: any) => api.get('/reports/technician-detail', { params }),
+  technicianDetailPdf: (params?: any) => api.get('/reports/technician-detail/pdf', { params, responseType: 'blob' }),
 }
 
 // ── GST ────────────────────────────────────────────────────────
