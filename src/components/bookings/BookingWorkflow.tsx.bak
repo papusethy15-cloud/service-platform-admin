@@ -1083,25 +1083,6 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                       </div>
                     )}
 
-                    {/* DRAFT — delete quotation for admin/CCO */}
-                    {q.status === 'DRAFT' && ['ADMIN', 'SUPER_ADMIN', 'CCO'].includes(userRole) && (
-                      <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          style={{ fontSize: 11, background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' }}
-                          disabled={acting}
-                          onClick={async () => {
-                            if (!window.confirm(`Delete quotation ${q.quotation_number}? This cannot be undone.`)) return
-                            setActing(true); setErr(''); setOk('')
-                            try { await quotationsAPI.delete(q.id); setOk('🗑 Quotation deleted'); await load(); onRefresh() }
-                            catch (ex: any) { setErr(extractApiError(ex, 'Delete failed')) }
-                            finally { setActing(false) }
-                          }}>
-                          🗑 Delete Quotation
-                        </button>
-                      </div>
-                    )}
-
                     {/* SUBMITTED — approve or reject for admin/CCO */}
                     {q.status === 'SUBMITTED' && ['ADMIN', 'SUPER_ADMIN', 'CCO'].includes(userRole) && (
                       <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
