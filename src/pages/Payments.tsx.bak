@@ -200,18 +200,9 @@ export default function Payments() {
   const successCount = items.filter(i => i.status === 'SUCCESS').length
   const dupSuccessBookings = getDuplicateSuccessBookings(items)
 
-  // Set of booking IDs that have at least one SUCCESS payment on this page
+  // PENDING rows that have a SUCCESS sibling on the same booking (on this page)
   const successBookingIds = new Set(
     items.filter(i => i.status === 'SUCCESS').map(i => i.booking_id)
-  )
-
-  // Set of booking IDs that have BOTH a SUCCESS AND at least one PENDING on this page
-  // Used to show "Cancel Dupes" on the SUCCESS row
-  const pendingBookingIds = new Set(
-    items.filter(i => i.status === 'PENDING').map(i => i.booking_id)
-  )
-  const isPendingWithSuccessBookingIds = new Set(
-    [...successBookingIds].filter(id => pendingBookingIds.has(id))
   )
 
   return (
@@ -312,7 +303,7 @@ export default function Payments() {
                     const sStyle = STATUS_STYLE[p.status] || { bg: '#F1F5F9', color: '#64748B' }
 
                     // Is this a PENDING row that has a SUCCESS sibling on same booking?
-                    const isPendingWithSuccess = p.status === 'PENDING' && p.booking_id && isPendingWithSuccessBookingIds.has(p.booking_id)
+                    const isPendingWithSuccess = p.status === 'PENDING' && p.booking_id && successBookingIds.has(p.booking_id)
                     // Is this a SUCCESS row where same booking has another SUCCESS too?
                     const isDuplicateSuccess = p.status === 'SUCCESS' && p.booking_id && dupSuccessBookings.has(p.booking_id)
 
@@ -372,10 +363,10 @@ export default function Payments() {
                             <button className="btn btn-secondary btn-sm" onClick={() => setDetail(p)}>View</button>
 
                             {/* SUCCESS: Cancel all PENDING dupes for this booking in one click */}
-                            {p.status === 'SUCCESS' && isPendingWithSuccessBookingIds.has(p.booking_id) && (
+                            {p.status === 'SUCCESS' && hasPendingDupes && (
                               <button onClick={() => openCancelDupes(p)}
                                 style={{ fontSize: 11, color: '#7C3AED', background: '#F3E8FF', border: '1px solid #C4B5FD', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
-                                🧹 Cancel Dupes
+                                Cancel Dupes
                               </button>
                             )}
 
@@ -394,17 +385,6 @@ export default function Payments() {
                                 Cancel
                               </button>
                             )}
-
-                            {/* PENDING with SUCCESS sibling: Cancel ALL pending for this booking at once */}
-                            {isPendingWithSuccess && (() => {
-                              const successTx = items.find(i => i.booking_id === p.booking_id && i.status === 'SUCCESS')
-                              return successTx ? (
-                                <button onClick={() => openCancelDupes(successTx)}
-                                  style={{ fontSize: 11, color: '#7C3AED', background: '#F3E8FF', border: '1px solid #C4B5FD', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
-                                  Cancel All
-                                </button>
-                              ) : null
-                            })()}
                           </div>
                         </td>
                       </tr>
