@@ -454,9 +454,10 @@ export const vendorsAPI = {
 
 // ── Attendance ─────────────────────────────────────────────────
 export const attendanceAPI = {
-  list:     (params?: any) => api.get('/attendance', { params }),
-  checkIn:  (d: any)       => api.post('/attendance/check-in', d),
-  checkOut: (d: any)       => api.post('/attendance/check-out', d),
+  list:          (params?: any)        => api.get('/attendance', { params }),
+  checkIn:       (d: any)              => api.post('/attendance/check-in', d),
+  checkOut:      (d: any)              => api.post('/attendance/check-out', d),
+  forceCheckout: (id: string, d?: any) => api.post(`/attendance/${id}/force-checkout`, d || {}),
 }
 
 // ── Leaves ─────────────────────────────────────────────────────

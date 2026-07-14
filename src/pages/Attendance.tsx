@@ -115,6 +115,10 @@ export default function Attendance() {
   const [reviewNotes,  setReviewNotes]  = useState('')
   const [saving, setSaving] = useState(false)
 
+  // Force-checkout
+  const [forceCheckoutNotes, setForceCheckoutNotes] = useState('')
+  const [checkingOut, setCheckingOut] = useState(false)
+
   // Detail modal
   const [detailRecord, setDetailRecord] = useState<AttendanceRecord | null>(null)
 
@@ -180,6 +184,20 @@ export default function Attendance() {
     } catch {
       toast.error('Failed to update leave status')
     } finally { setSaving(false) }
+  }
+
+  const handleForceCheckout = async () => {
+    if (!detailRecord) return
+    setCheckingOut(true)
+    try {
+      await attendanceAPI.forceCheckout(detailRecord.id, { notes: forceCheckoutNotes || undefined })
+      toast.success(`${detailRecord.technician_name || 'Technician'} checked out and marked offline`)
+      setDetailRecord(null)
+      setForceCheckoutNotes('')
+      fetchData()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Force checkout failed')
+    } finally { setCheckingOut(false) }
   }
 
   const resetFilters = () => {
@@ -387,13 +405,28 @@ export default function Attendance() {
                         )}
                       </td>
                       <td>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => setDetailRecord(r)}
-                          style={{ fontSize: 11 }}
-                        >
-                          Details
-                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => { setDetailRecord(r); setForceCheckoutNotes('') }}
+                            style={{ fontSize: 11 }}
+                          >
+                            Details
+                          </button>
+                          {r.is_active && (
+                            <button
+                              className="btn btn-sm"
+                              onClick={() => { setDetailRecord(r); setForceCheckoutNotes('') }}
+                              style={{
+                                fontSize: 11, background: '#FEF2F2', color: '#DC2626',
+                                border: '1px solid #FECACA', borderRadius: 6,
+                                padding: '4px 10px', cursor: 'pointer', fontWeight: 600
+                              }}
+                            >
+                              ⏹ Checkout
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -670,12 +703,51 @@ export default function Attendance() {
             </div>
 
             {detailRecord.notes && (
-              <div style={{ padding: '10px 14px', background: '#FFFBEB', borderRadius: 8, fontSize: 13, color: '#451A03' }}>
+              <div style={{ padding: '10px 14px', background: '#FFFBEB', borderRadius: 8, fontSize: 13, color: '#451A03', marginBottom: 16 }}>
                 <b style={{ color: '#92400E' }}>Notes:</b> {detailRecord.notes}
               </div>
             )}
 
-            <div style={{ marginTop: 16 }}>
+            {/* ── Admin Force Checkout (only for LIVE sessions) ── */}
+            {detailRecord.is_active && (
+              <div style={{
+                marginTop: 4, padding: '16px', background: '#FEF2F2',
+                border: '1px solid #FECACA', borderRadius: 10, marginBottom: 4
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 16 }}>⏹</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: '#991B1B' }}>Force Check-Out</div>
+                    <div style={{ fontSize: 11, color: '#DC2626', marginTop: 1 }}>
+                      Session is LIVE — this will check out the technician and mark them offline
+                    </div>
+                  </div>
+                </div>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={forceCheckoutNotes}
+                  onChange={e => setForceCheckoutNotes(e.target.value)}
+                  placeholder="Reason for manual checkout (optional)…"
+                  style={{ fontSize: 12, resize: 'none', marginBottom: 10, borderColor: '#FECACA' }}
+                />
+                <button
+                  className="btn"
+                  onClick={handleForceCheckout}
+                  disabled={checkingOut}
+                  style={{
+                    width: '100%', background: '#DC2626', color: 'white',
+                    fontWeight: 700, fontSize: 13, padding: '10px',
+                    border: 'none', borderRadius: 8, cursor: checkingOut ? 'not-allowed' : 'pointer',
+                    opacity: checkingOut ? 0.7 : 1
+                  }}
+                >
+                  {checkingOut ? 'Checking out…' : '⏹  Confirm Force Check-Out & Mark Offline'}
+                </button>
+              </div>
+            )}
+
+            <div style={{ marginTop: 12 }}>
               <button className="btn btn-secondary" onClick={() => setDetailRecord(null)} style={{ width: '100%' }}>
                 Close
               </button>
