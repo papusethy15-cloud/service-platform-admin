@@ -1,11 +1,11 @@
 // src/pages/Settlements.tsx — Settled bookings + commission settlement
 // Withdrawal management is handled separately in Withdrawals.tsx
 import { useEffect, useState, useCallback } from 'react'
-import { walletAPI, bookingsAPI } from '@/services/api'
+import { walletAPI } from '@/services/api'
 import PageHeader from '@/components/layout/PageHeader'
 import Pagination from '@/components/ui/Pagination'
 import Spinner from '@/components/ui/Spinner'
-import Modal from '@/components/ui/Modal'
+import SettleModal from '@/components/ui/SettleModal'
 
 const fmt = (n: number) =>
   `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -32,14 +32,8 @@ export default function Settlements() {
   const [total, setTotal]     = useState(0)
   const [techSearch, setTechSearch] = useState('')
 
-  // Settle modal
-  const [settleBooking, setSettleBooking]   = useState<any>(null)
-  const [settlePreview, setSettlePreview]   = useState<any>(null)
-  const [settleLoading, setSettleLoading]   = useState(false)
-  const [settleNotes, setSettleNotes]       = useState('')
-  const [settleOverrides, setSettleOverrides] = useState<Record<number, string>>({})
-  const [settleErr, setSettleErr]           = useState('')
-  const [previewLoading, setPreviewLoading] = useState(false)
+  // Single settle modal — using shared SettleModal component
+  const [settleBooking, setSettleBooking] = useState<any>(null)
 
   const fetchSettlements = useCallback(async () => {
     setLoading(true)
@@ -53,43 +47,6 @@ export default function Settlements() {
   }, [page])
 
   useEffect(() => { fetchSettlements() }, [fetchSettlements])
-
-  const openSettleModal = async (s: any) => {
-    setSettleBooking(s)
-    setSettlePreview(null)
-    setSettleNotes('')
-    setSettleOverrides({})
-    setSettleErr('')
-    setPreviewLoading(true)
-    try {
-      const r = await bookingsAPI.commissionPreview(s.booking_id)
-      setSettlePreview(r.data.data)
-    } catch (ex: any) {
-      setSettleErr(ex.response?.data?.detail || 'Failed to load commission preview')
-    } finally {
-      setPreviewLoading(false)
-    }
-  }
-
-  const handleSettle = async () => {
-    if (!settleBooking) return
-    setSettleLoading(true); setSettleErr('')
-    try {
-      const overrideList = Object.entries(settleOverrides)
-        .filter(([, v]) => v !== '')
-        .map(([idx, val]) => ({ item_index: Number(idx), commission_amount: Number(val) }))
-      await bookingsAPI.settleBooking(settleBooking.booking_id, {
-        overrides: overrideList,
-        notes: settleNotes || undefined,
-      })
-      setSettleBooking(null)
-      fetchSettlements()
-    } catch (ex: any) {
-      setSettleErr(ex.response?.data?.detail || 'Failed to settle booking')
-    } finally {
-      setSettleLoading(false)
-    }
-  }
 
   const filtered = techSearch
     ? items.filter(i =>
@@ -106,7 +63,7 @@ export default function Settlements() {
     <div style={{ padding: '24px 28px' }}>
       <PageHeader
         title="Settlements"
-        subtitle={`${total} completed bookings — settle & credit technician commissions`}
+        subtitle={`${total} completed bookings — settle & hold technician commissions`}
       />
 
       {/* Search */}
@@ -122,7 +79,9 @@ export default function Settlements() {
 
       <div style={{ marginBottom: 10, fontSize: 13, color: '#64748B' }}>
         Showing {filtered.length} of {total} bookings.{' '}
-        <b>Settle &amp; Close</b> finalises commission and credits the technician's wallet.
+        <b>Settle &amp; Close</b> finalises commission and <b>holds</b> it (not yet in wallet).
+        To release to wallet, go to{' '}
+        <a href="/commissions" style={{ color: '#1D4ED8', fontWeight: 700 }}>Commissions → Pay</a>.
         To pay out technicians, go to{' '}
         <a href="/withdrawals" style={{ color: '#1D4ED8', fontWeight: 700 }}>Withdrawal Requests</a>.
       </div>
@@ -186,7 +145,7 @@ export default function Settlements() {
                                 borderRadius: 6, padding: '4px 12px', fontSize: 12,
                                 cursor: 'pointer', fontWeight: 700,
                               }}
-                              onClick={() => openSettleModal(s)}
+                              onClick={() => setSettleBooking(s)}
                             >
                               🔒 Settle
                             </button>
@@ -205,95 +164,16 @@ export default function Settlements() {
         }
       </div>
 
-      {/* ── Settle Modal ── */}
+      {/* ── Shared Settle & Close Modal ── */}
       {settleBooking && (
-        <Modal title={`Settle & Close — #${settleBooking.booking_number}`} onClose={() => setSettleBooking(null)}>
-          <div style={{ background: '#F8FAFC', borderRadius: 10, padding: '12px 16px', marginBottom: 16, border: '1px solid #E2E8F0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>Technician</span>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>{settleBooking.technician_name}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>Booking Amount</span>
-              <span style={{ fontSize: 14, fontWeight: 800, color: '#0F172A' }}>{fmt(settleBooking.total_amount)}</span>
-            </div>
-          </div>
-
-          {previewLoading && <div style={{ textAlign: 'center', padding: 24 }}><Spinner /></div>}
-
-          {settlePreview && !previewLoading && (
-            <>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: '#0F172A' }}>
-                Commission Breakdown
-                <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: '#059669' }}>
-                  Total: {fmt(settlePreview.total_commission ?? 0)}
-                </span>
-              </div>
-              {(settlePreview.line_items || []).length === 0 ? (
-                <div style={{ color: '#94A3B8', fontSize: 13, marginBottom: 12 }}>No commission line items found.</div>
-              ) : (
-                <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', marginBottom: 14 }}>
-                  <thead>
-                    <tr style={{ background: '#F8FAFC' }}>
-                      <th style={{ textAlign: 'left', padding: '6px 8px', color: '#64748B' }}>Item</th>
-                      <th style={{ textAlign: 'right', padding: '6px 8px', color: '#64748B' }}>Total</th>
-                      <th style={{ textAlign: 'right', padding: '6px 8px', color: '#64748B' }}>Commission</th>
-                      <th style={{ textAlign: 'right', padding: '6px 8px', color: '#64748B' }}>Override</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(settlePreview.line_items || []).map((item: any, idx: number) => (
-                      <tr key={idx} style={{ borderTop: '1px solid #F1F5F9' }}>
-                        <td style={{ padding: '6px 8px' }}>
-                          <div style={{ fontWeight: 600 }}>{item.name}</div>
-                          <div style={{ color: '#94A3B8', fontSize: 11 }}>{item.type} · qty {item.quantity}</div>
-                        </td>
-                        <td style={{ textAlign: 'right', padding: '6px 8px' }}>{fmt(item.total_price)}</td>
-                        <td style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 700,
-                          color: item.commission_amount != null ? '#059669' : '#F59E0B' }}>
-                          {item.commission_amount != null ? fmt(item.commission_amount) : 'No rule'}
-                        </td>
-                        <td style={{ textAlign: 'right', padding: '6px 8px' }}>
-                          <input
-                            type="number" min="0" step="0.01" placeholder="Override"
-                            value={settleOverrides[idx] ?? ''}
-                            onChange={e => setSettleOverrides(prev => ({ ...prev, [idx]: e.target.value }))}
-                            style={{ width: 80, padding: '3px 6px', fontSize: 12, border: '1px solid #E2E8F0', borderRadius: 6, textAlign: 'right' }}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </>
-          )}
-
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Settlement Notes (optional)</label>
-            <textarea
-              className="input" rows={2} value={settleNotes}
-              onChange={e => setSettleNotes(e.target.value)}
-              placeholder="Any notes about this settlement…"
-              style={{ resize: 'vertical' }}
-            />
-          </div>
-
-          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#92400E' }}>
-            <b>Settling</b> will credit the commission to the technician's wallet and mark this booking as <b>CLOSED</b>. This cannot be undone.
-          </div>
-
-          {settleErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 12 }}>{settleErr}</div>}
-
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              style={{ background: '#059669', color: '#fff', borderRadius: 8, padding: '8px 20px', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}
-              disabled={settleLoading || previewLoading}
-              onClick={handleSettle}
-            >{settleLoading ? <Spinner size="sm" /> : '🔒 Settle & Close'}</button>
-            <button className="btn btn-secondary" onClick={() => setSettleBooking(null)}>Cancel</button>
-          </div>
-        </Modal>
+        <SettleModal
+          booking={settleBooking}
+          onClose={() => setSettleBooking(null)}
+          onSettled={() => {
+            setSettleBooking(null)
+            fetchSettlements()
+          }}
+        />
       )}
     </div>
   )

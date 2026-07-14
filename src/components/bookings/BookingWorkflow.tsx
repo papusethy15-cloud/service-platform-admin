@@ -14,6 +14,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useBookingWebSocket } from '@/hooks/useAdminWebSocket'
 import { useAuthStore } from '@/store/authStore'
 import Modal from '@/components/ui/Modal'
+import SettleModal from '@/components/ui/SettleModal'
 import Spinner from '@/components/ui/Spinner'
 import {
   bookingsAPI, quotationsAPI, invoicesAPI, paymentsAPI, customersAPI,
@@ -159,14 +160,8 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
 
   // ── loss inspection panel ──
   const [showLoss, setShowLoss] = useState(false)
-  // ── settlement ──
+  // ── settlement — uses shared SettleModal component ──
   const [showSettleModal, setShowSettleModal] = useState(false)
-  const [settlePreview,   setSettlePreview]   = useState<any>(null)
-  const [settleLoading,   setSettleLoading]   = useState(false)
-  const [settleOverrides, setSettleOverrides] = useState<Record<number,string>>({})
-  const [settleNotes,     setSettleNotes]     = useState('')
-  const [settling,        setSettling]        = useState(false)
-  const [settleErr,       setSettleErr]       = useState('')
 
   // ── cancel booking form ──
   const [showCancelForm, setShowCancelForm] = useState(false)
@@ -823,18 +818,8 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                 {/* Settle & Close — available when all invoices paid or outstanding resolved */}
                 {hasInvoice && totalOutstanding <= 0 && !['CLOSED', 'SETTLED'].includes(status) && (
                   <ActionBtn icon="🔒" label="Settle & Close Booking" color="#374151" bg="#F0FDF4" border="#86EFAC"
-                    hint="Review commission breakdown and settle with technician wallet"
-                    onClick={async () => {
-                      setSettleErr(''); setSettleOverrides({}); setSettleNotes('')
-                      setSettleLoading(true); setShowSettleModal(true)
-                      try {
-                        const r = await (bookingsAPI as any).commissionPreview(booking.id)
-                        setSettlePreview(r.data.data)
-                      } catch (ex: any) {
-                        setSettleErr(extractApiError(ex, 'Failed to load commission preview'))
-                        setSettlePreview(null)
-                      } finally { setSettleLoading(false) }
-                    }} loading={false} />
+                    hint="Review commission breakdown and settle booking"
+                    onClick={() => setShowSettleModal(true)} loading={false} />
                 )}
 
                 {/* ── VISITING CHARGE: Pending Verification ── */}
@@ -887,17 +872,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                     {totalOutstanding <= 0 && (
                       <ActionBtn icon="🔒" label="Verify &amp; Close Booking" color="#374151" bg="#F0FDF4" border="#86EFAC"
                         hint="Confirm visiting charge collected — settle commission and close booking"
-                        onClick={async () => {
-                          setSettleErr(''); setSettleOverrides({}); setSettleNotes('Visiting charge — admin verified')
-                          setSettleLoading(true); setShowSettleModal(true)
-                          try {
-                            const r = await (bookingsAPI as any).commissionPreview(booking.id)
-                            setSettlePreview(r.data.data)
-                          } catch (ex: any) {
-                            setSettleErr(extractApiError(ex, 'Failed to load commission preview'))
-                            setSettlePreview(null)
-                          } finally { setSettleLoading(false) }
-                        }} loading={false} />
+                        onClick={() => setShowSettleModal(true)} loading={false} />
                     )}
                   </div>
                 )}
@@ -1605,141 +1580,17 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
         </Modal>
       )}
 
-      {/* ══════════════════════════════════════════════════════════════
-          SETTLEMENT MODAL
-      ══════════════════════════════════════════════════════════════ */}
+      {/* Shared Settle & Close Modal */}
       {showSettleModal && (
-        <Modal
-          title={`Settle & Close — ${booking.booking_number}`}
-          onClose={() => { setShowSettleModal(false); setSettlePreview(null) }}
-          size="xl"
-        >
-          {settleLoading ? (
-            <div style={{ textAlign: 'center', padding: 40 }}><Spinner /></div>
-          ) : settleErr && !settlePreview ? (
-            <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>{settleErr}</div>
-          ) : settlePreview ? (
-            <div>
-              {/* Technician + Group info */}
-              <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 11, color: '#64748B', marginBottom: 2 }}>👷 Technician</div>
-                  <div style={{ fontWeight: 700, color: '#1E40AF' }}>{settlePreview.technician?.name || '—'}</div>
-                </div>
-                <div style={{ flex: 1, background: settlePreview.commission_group ? '#F0FDF4' : '#FFF7ED', border: `1px solid ${settlePreview.commission_group ? '#86EFAC' : '#FCD34D'}`, borderRadius: 8, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 11, color: '#64748B', marginBottom: 2 }}>💼 Commission Group</div>
-                  <div style={{ fontWeight: 700, color: settlePreview.commission_group ? '#166534' : '#92400E' }}>
-                    {settlePreview.commission_group?.name || '⚠ No group assigned — manual entry required'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Per-line commission table */}
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>Commission Breakdown</div>
-                <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
-                  {/* Header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 90px 110px', gap: 0, background: '#F8FAFC', padding: '8px 12px', borderBottom: '1px solid #E2E8F0', fontSize: 11, fontWeight: 700, color: '#64748B' }}>
-                    <span>Item</span><span style={{textAlign:'right'}}>Qty</span><span style={{textAlign:'right'}}>Amount</span><span style={{textAlign:'right'}}>Rate</span><span style={{textAlign:'right'}}>Commission</span>
-                  </div>
-                  {settlePreview.line_items.map((item: any, idx: number) => {
-                    const isUnmatched = item.match_status === 'unmatched'
-                    return (
-                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 90px 110px', gap: 0, padding: '8px 12px', borderBottom: '1px solid #F1F5F9', background: isUnmatched ? '#FFFBEB' : 'white', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A' }}>
-                            {item.type === 'PART' ? '🔩' : '🔧'} {item.name}
-                          </div>
-                          <div style={{ fontSize: 10, color: '#94A3B8' }}>
-                            {item.quotation_number}
-                            {item.type === 'PART' && item.part_source && (
-                              <span style={{ marginLeft: 6, background: item.part_source === 'OFFICE_STOCK' ? '#DBEAFE' : '#FEF3C7', color: item.part_source === 'OFFICE_STOCK' ? '#1D4ED8' : '#92400E', padding: '1px 5px', borderRadius: 4, fontSize: 9 }}>
-                                {item.part_source === 'OFFICE_STOCK' ? '🏢 Office Stock' : '🛒 Market Purchase'}
-                              </span>
-                            )}
-                            {isUnmatched && <span style={{ marginLeft: 6, background: '#FEF3C7', color: '#92400E', padding: '1px 5px', borderRadius: 4, fontSize: 9 }}>⚠ Not in group</span>}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right', fontSize: 12, color: '#374151' }}>{item.quantity}</div>
-                        <div style={{ textAlign: 'right', fontSize: 12, color: '#374151' }}>{money(item.total_price)}</div>
-                        <div style={{ textAlign: 'right', fontSize: 11, color: '#64748B' }}>
-                          {item.rate != null ? `${item.commission_type === 'PERCENTAGE' ? item.rate + '%' : '₹' + item.rate}` : '—'}
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          {isUnmatched ? (
-                            <input
-                              type="number" min="0" step="0.01"
-                              placeholder="0"
-                              value={settleOverrides[idx] ?? ''}
-                              onChange={e => setSettleOverrides(ov => ({ ...ov, [idx]: e.target.value }))}
-                              style={{ width: 80, padding: '4px 6px', border: '1px solid #FCD34D', borderRadius: 5, fontSize: 12, textAlign: 'right' }}
-                            />
-                          ) : (
-                            <span style={{ fontWeight: 700, fontSize: 12, color: '#059669' }}>
-                              {money(item.commission_amount || 0)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {/* Total row */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 90px 110px', padding: '10px 12px', background: '#F0FDF4', borderTop: '2px solid #86EFAC' }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: '#166534', gridColumn: '1/5' }}>Total Commission</div>
-                    <div style={{ textAlign: 'right', fontWeight: 800, fontSize: 14, color: '#059669' }}>
-                      {money(
-                        settlePreview.line_items.reduce((sum: number, item: any, idx: number) => {
-                          if (item.match_status === 'unmatched') {
-                            return sum + (parseFloat(settleOverrides[idx] || '0') || 0)
-                          }
-                          return sum + (item.commission_amount || 0)
-                        }, 0)
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Unmatched warning */}
-              {settlePreview.line_items.some((i: any) => i.match_status === 'unmatched') && (
-                <div style={{ background: '#FFF7ED', border: '1px solid #FCD34D', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#92400E', marginBottom: 12 }}>
-                  ⚠ Some items are not in the commission group. Enter commission amount manually in the highlighted fields above, or leave 0 to skip.
-                </div>
-              )}
-
-              {/* Settlement notes */}
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Settlement Notes (optional)</label>
-                <input className="input" placeholder="e.g. All payments confirmed, extra part verified"
-                  value={settleNotes} onChange={e => setSettleNotes(e.target.value)} />
-              </div>
-
-              {settleErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 10 }}>{settleErr}</div>}
-
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button className="btn btn-primary" disabled={settling} onClick={async () => {
-                  setSettling(true); setSettleErr('')
-                  try {
-                    const overrides = settlePreview.line_items
-                      .map((item: any, idx: number) => item.match_status === 'unmatched'
-                        ? { item_index: idx, commission_amount: parseFloat(settleOverrides[idx] || '0') || 0 }
-                        : null
-                      ).filter(Boolean)
-                    await (bookingsAPI as any).settleBooking(booking.id, { overrides, notes: settleNotes || undefined })
-                    setShowSettleModal(false)
-                    setOk('✅ Booking settled — commission credited to technician wallet')
-                    await load(); onRefresh()
-                  } catch (ex: any) {
-                    setSettleErr(extractApiError(ex, 'Settlement failed'))
-                  } finally { setSettling(false) }
-                }}>
-                  {settling ? <Spinner size="sm" /> : '🔒 Confirm Settlement & Close'}
-                </button>
-                <button className="btn btn-secondary" onClick={() => { setShowSettleModal(false); setSettlePreview(null) }}>Cancel</button>
-              </div>
-            </div>
-          ) : null}
-        </Modal>
+        <SettleModal
+          booking={booking}
+          onClose={() => setShowSettleModal(false)}
+          onSettled={async () => {
+            setShowSettleModal(false)
+            setOk('✅ Booking settled — commission held, release it from Commissions page')
+            await load(); onRefresh()
+          }}
+        />
       )}
     </Modal>
   )

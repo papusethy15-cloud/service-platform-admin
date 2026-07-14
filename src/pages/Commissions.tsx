@@ -153,9 +153,13 @@ export default function Commissions() {
     if (!payModal) return
     setSaving(true)
     try {
+      // If still PENDING, auto-approve first (backend requires APPROVED before PAID)
+      if (payModal.status === 'PENDING') {
+        await commissionsAPI.approve(payModal.id, 'Auto-approved on payment')
+      }
       await commissionsAPI.pay(payModal.id)
       setPayModal(null)
-      toast.success('Commission marked as paid'); fetchData()
+      toast.success('Commission paid — wallet credited'); fetchData()
     } catch (ex: any) { toast.error(ex.response?.data?.detail || 'Failed') }
     finally { setSaving(false) }
   }
@@ -165,9 +169,10 @@ export default function Commissions() {
     setSaving(true)
     try {
       const ids = Array.from(selected)
-      const r = bulkAction === 'approve'
-        ? await commissionsAPI.bulkApprove(ids)
-        : await commissionsAPI.bulkPay(ids)
+      // Auto-approve PENDING ones first, then bulk pay all
+      const pendingIds = items.filter(i => ids.includes(i.id) && i.status === 'PENDING').map(i => i.id)
+      if (pendingIds.length > 0) await commissionsAPI.bulkApprove(pendingIds)
+      const r = await commissionsAPI.bulkPay(ids)
       toast.success(r.data.message || 'Done')
       setBulkAction(null); fetchData()
     } catch (ex: any) { toast.error(ex.response?.data?.detail || 'Bulk action failed') }
@@ -246,10 +251,8 @@ export default function Commissions() {
       }}>
         <span style={{ fontSize: 16, lineHeight: 1.4 }}>ℹ️</span>
         <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.6 }}>
-          <b>How commissions work:</b> When admin settles a booking, commissions are calculated and saved as <b>PENDING</b>.
-          The technician's wallet is <b>NOT credited yet</b> — the amount is shown as "on hold" in their wallet screen.
-          Admin must first <b>Approve</b>, then click <b>"Confirm Payment"</b> (Mark Paid) to release the amount into the technician's wallet.
-          Only after <b>"Confirm Payment"</b> does the wallet balance go up and the technician can withdraw.
+          <b>How commissions work:</b> When admin settles a booking, commissions are saved as <b>PENDING</b> (on hold — NOT in wallet yet).
+          Click <b>"Pay"</b> to release the amount into the technician's wallet. Only after <b>Pay</b> does the wallet balance increase and the technician can withdraw.
         </div>
       </div>
 
@@ -305,17 +308,11 @@ export default function Commissions() {
             {selected.size} selected
           </span>
           <span style={{ color: '#93C5FD', fontSize: 16 }}>|</span>
-          {pendingSelected > 0 && (
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => setBulkAction('approve')}
-            >✓ Approve {pendingSelected} Pending</button>
-          )}
-          {approvedSelected > 0 && (
+          {(pendingSelected > 0 || approvedSelected > 0) && (
             <button
               onClick={() => setBulkAction('pay')}
               style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: '#15803D', color: '#fff' }}
-            >₹ Mark {approvedSelected} Paid</button>
+            >₹ Pay {pendingSelected + approvedSelected} Commissions</button>
           )}
           {pendingSelected === 0 && approvedSelected === 0 && (
             <span style={{ fontSize: 12, color: '#64748B' }}>Selected items have no available bulk action</span>
@@ -419,17 +416,11 @@ export default function Commissions() {
                       {/* actions */}
                       <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 5, justifyContent: 'center', flexWrap: 'nowrap' }}>
-                          {c.status === 'PENDING' && (
-                            <button
-                              className="btn btn-primary btn-sm"
-                              onClick={() => { setApproveNotes(''); setApproveModal(c) }}
-                            >Approve</button>
-                          )}
-                          {c.status === 'APPROVED' && (
+                          {(c.status === 'PENDING' || c.status === 'APPROVED') && (
                             <button
                               onClick={() => setPayModal(c)}
                               style={{ padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, background: '#15803D', color: '#fff' }}
-                            >Mark Paid</button>
+                            >₹ Pay</button>
                           )}
                           {c.status === 'PAID' && (
                             <span style={{ fontSize: 11, color: '#15803D', fontWeight: 600 }}>✓ Paid{c.payout_date ? ` ${fmtDate(c.payout_date).split(',')[0]}` : ''}</span>
@@ -520,16 +511,11 @@ export default function Commissions() {
 
             {/* drawer footer actions */}
             <div style={{ padding: '14px 24px', borderTop: '1px solid #E2E8F0', display: 'flex', gap: 10 }}>
-              {drawer.status === 'PENDING' && (
-                <button className="btn btn-primary" onClick={() => { setApproveNotes(''); setApproveModal(drawer); setDrawer(null) }}>
-                  Approve
-                </button>
-              )}
-              {drawer.status === 'APPROVED' && (
+              {(drawer.status === 'PENDING' || drawer.status === 'APPROVED') && (
                 <button
                   onClick={() => { setPayModal(drawer); setDrawer(null) }}
                   style={{ padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 700, background: '#15803D', color: '#fff' }}
-                >Mark Paid</button>
+                >₹ Pay</button>
               )}
               <button className="btn btn-secondary" onClick={() => setDrawer(null)}>Close</button>
             </div>
@@ -571,7 +557,7 @@ export default function Commissions() {
 
       {/* ══════════ MARK PAID MODAL ══════════ */}
       {payModal && (
-        <Modal title="Mark Commission as Paid" onClose={() => setPayModal(null)}>
+        <Modal title="Pay Commission" onClose={() => setPayModal(null)}>
           <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '12px 16px', marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: '#64748B', marginBottom: 4 }}>Commission</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: '#1D4ED8' }}>{fmt(payModal.commission_amount)}</div>
@@ -610,31 +596,27 @@ export default function Commissions() {
       {/* ══════════ BULK ACTION MODAL ══════════ */}
       {bulkAction && (
         <Modal
-          title={bulkAction === 'approve' ? `Bulk Approve ${pendingSelected} Commissions` : `Bulk Mark ${approvedSelected} as Paid`}
+          title={`Pay ${pendingSelected + approvedSelected} Commissions`}
           onClose={() => setBulkAction(null)}
         >
           <div style={{
-            background: bulkAction === 'approve' ? '#EFF6FF' : '#F0FDF4',
-            border: `1px solid ${bulkAction === 'approve' ? '#BFDBFE' : '#BBF7D0'}`,
+            background: '#F0FDF4',
+            border: '1px solid #BBF7D0',
             borderRadius: 8, padding: '12px 16px', marginBottom: 14,
           }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', marginBottom: 6 }}>
-              {bulkAction === 'approve'
-                ? `${pendingSelected} PENDING commission${pendingSelected !== 1 ? 's' : ''} will be approved`
-                : `${approvedSelected} APPROVED commission${approvedSelected !== 1 ? 's' : ''} will be marked PAID`}
+              {pendingSelected + approvedSelected} commission{(pendingSelected + approvedSelected) !== 1 ? 's' : ''} will be paid out
             </div>
             <div style={{ fontSize: 12, color: '#64748B' }}>
-              {selected.size} rows selected · {bulkAction === 'approve' ? `${pendingSelected} eligible (PENDING only)` : `${approvedSelected} eligible (APPROVED only)`}
+              {selected.size} rows selected · {pendingSelected} PENDING (auto-approved) + {approvedSelected} APPROVED
             </div>
           </div>
 
-          {bulkAction === 'pay' && (
-            <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
-              <div style={{ fontSize: 12, color: '#78350F', lineHeight: 1.7 }}>
-                <b>Heads up:</b> This will <b>credit the wallet</b> for each selected commission. Technicians will see their balance update and can request withdrawal.
-              </div>
+          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: '#78350F', lineHeight: 1.7 }}>
+              <b>This will credit the wallet</b> for each selected commission. PENDING ones are auto-approved first. Technicians will see their balance update and can request withdrawal.
             </div>
-          )}
+          </div>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
             <button className="btn btn-primary" onClick={doBulk} disabled={saving}>
