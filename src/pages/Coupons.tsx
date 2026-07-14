@@ -166,7 +166,7 @@ export default function Coupons() {
                           )}
                         </td>
                         <td style={{ fontSize: 12, color: expired ? '#DC2626' : '#64748B' }}>
-                          {c.valid_until ? new Date(c.valid_until).toLocaleDateString('en-IN') : '—'}
+                          {c.valid_until ? new Date(c.valid_until).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}
                         </td>
                         <td>
                           <span className={`badge status-${status === 'ACTIVE' ? 'ACTIVE' : 'CANCELLED'}`}>

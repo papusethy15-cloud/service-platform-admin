@@ -174,7 +174,7 @@ export default function GSTReport() {
                     {gst.line_items.map((r: any, i: number) => (
                       <tr key={i}>
                         <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#1B4FD8', fontWeight: 700 }}>{r.invoice_number}</td>
-                        <td style={{ fontSize: 12, color: '#64748B', whiteSpace: 'nowrap' }}>{r.date ? new Date(r.date).toLocaleDateString('en-IN') : '—'}</td>
+                        <td style={{ fontSize: 12, color: '#64748B', whiteSpace: 'nowrap' }}>{r.date ? new Date(r.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</td>
                         <td style={{ fontSize: 13 }}>{r.customer_name || '—'}</td>
                         <td style={{ fontFamily: 'monospace', fontSize: 11, color: r.gstin ? '#059669' : '#94A3B8' }}>{r.gstin || 'B2C'}</td>
                         <td style={{ fontWeight: 600 }}>₹{(r.taxable_amount||0).toLocaleString('en-IN')}</td>

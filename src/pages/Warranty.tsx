@@ -48,9 +48,9 @@ export default function Warranty() {
                         <td style={{ fontWeight: 500 }}>{w.customer_name || w.customer_id}</td>
                         <td>{w.appliance_type || '—'}</td>
                         <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{w.serial_number || '—'}</td>
-                        <td>{w.purchase_date ? new Date(w.purchase_date).toLocaleDateString('en-IN') : '—'}</td>
+                        <td>{w.purchase_date ? new Date(w.purchase_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</td>
                         <td style={{ color: expired ? '#DC2626' : '#059669' }}>
-                          {w.expiry_date ? new Date(w.expiry_date).toLocaleDateString('en-IN') : '—'}
+                          {w.expiry_date ? new Date(w.expiry_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}
                         </td>
                         <td><StatusBadge status={expired ? 'CANCELLED' : 'ACTIVE'} /></td>
                       </tr>

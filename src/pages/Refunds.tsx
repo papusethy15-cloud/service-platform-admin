@@ -15,7 +15,7 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
 
 const METHOD_OPTS = ['ORIGINAL', 'RAZORPAY', 'BANK_TRANSFER', 'UPI', 'CASH', 'WALLET']
 const fmt = (n: any) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-const fmtD = (d: string) => d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+const fmtD = (d: string) => d ? new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 
 export default function Refunds() {
   const [refunds, setRefunds] = useState<any[]>([])

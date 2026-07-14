@@ -26,7 +26,7 @@ import BookingModal from '@/components/bookings/BookingModal'
 import { useAuthStore } from '@/store/authStore'
 
 // ─── tiny helpers ────────────────────────────────────────────────────────────
-const fmt = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+const fmt = (d: string) => new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })
 const money = (n: number) => `₹${(n || 0).toLocaleString('en-IN')}`
 const InfoBox = ({ label, value }: { label: string; value: any }) => (
   <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px' }}>
@@ -518,7 +518,7 @@ function CustomerDetailModal({ customer: initial, onClose, onBooking, isAdmin, o
             <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #F1F5F9' }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{b.booking_number}</div>
-                <div style={{ fontSize: 12, color: '#64748B' }}>{new Date(b.scheduled_date).toLocaleDateString('en-IN')}</div>
+                <div style={{ fontSize: 12, color: '#64748B' }}>{new Date(b.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}</div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <StatusBadge status={b.status} />
@@ -751,7 +751,7 @@ export default function Customers() {
                           ? <span style={{ fontSize: 11, background: '#D1FAE5', color: '#065F46', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>GST</span>
                           : <span style={{ color: '#CBD5E1', fontSize: 12 }}>—</span>}
                       </td>
-                      <td style={{ fontSize: 12, color: '#94A3B8' }}>{new Date(c.created_at).toLocaleDateString('en-IN')}</td>
+                      <td style={{ fontSize: 12, color: '#94A3B8' }}>{new Date(c.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button className="btn btn-secondary btn-sm" onClick={() => setSelected(c)}>View</button>

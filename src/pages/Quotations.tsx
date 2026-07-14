@@ -23,9 +23,9 @@ import { useAuthStore } from '@/store/authStore'
 const money = (n: number | null | undefined) =>
   `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const fmtDate = (d: string) =>
-  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 const fmtDT = (d: string) =>
-  d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+  d ? new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 
 const lbl: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 5 }
 
@@ -821,7 +821,7 @@ function RepeatComplaintBanner({
           {repeatBooking && (
             <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>
               Previous completed repair: <b>{repeatBooking.booking_number}</b>
-              {repeatBooking.scheduled_date && <> on {new Date(repeatBooking.scheduled_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</>}
+              {repeatBooking.scheduled_date && <> on {new Date(repeatBooking.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}</>}
               {repeatBooking.service_name && <> · {repeatBooking.service_name}</>}
             </div>
           )}
@@ -2207,7 +2207,7 @@ async function generateQuotationPDF(q: any): Promise<void> {
   }
 
   const money = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  const fmtD  = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  const fmtD  = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
   // Group services and parts by appliance
   const services: any[] = fullQ.services || []

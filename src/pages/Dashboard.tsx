@@ -20,12 +20,12 @@ const fmtFull = (n: number) =>
 
 const fmtDate = (d: string) => {
   const dt = new Date(d)
-  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+  return dt.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' })
 }
 
 const fmtDateTime = (d: string) => {
   if (!d) return '—'
-  return new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  return new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -198,7 +198,7 @@ export default function Dashboard() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: '#0F172A', marginBottom: 4 }}>Business Dashboard</h1>
           <div style={{ fontSize: 13, color: '#94A3B8' }}>
-            Last updated: {lastRefresh.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+            Last updated: {lastRefresh.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
             {refreshing && <span style={{ marginLeft: 10, color: '#1B4FD8' }}>● Refreshing…</span>}
           </div>
         </div>

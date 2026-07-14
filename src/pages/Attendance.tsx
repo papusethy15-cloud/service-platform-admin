@@ -39,10 +39,10 @@ interface Technician { id: string; name: string }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtTime = (d: string | null) =>
-  d ? new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
+  d ? new Date(d).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
 
 const fmtDate = (d: string) =>
-  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
 const fmtDuration = (hours: number) => {
   if (!hours) return '—'

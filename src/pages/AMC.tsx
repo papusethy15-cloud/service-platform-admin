@@ -67,7 +67,7 @@ export default function AMC() {
                       <tr key={r.id}>
                         <td style={{ fontWeight: 500 }}>{r.customer_name || r.customer_id}</td>
                         <td>{r.plan_name || '—'}</td>
-                        <td>{new Date(r.expiry_date).toLocaleDateString('en-IN')}</td>
+                        <td>{new Date(r.expiry_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}</td>
                         <td><span style={{ fontWeight: 700, color: days <= 7 ? '#DC2626' : days <= 30 ? '#D97706' : '#059669' }}>{days}d</span></td>
                         <td><StatusBadge status={r.status || 'ACTIVE'} /></td>
                       </tr>

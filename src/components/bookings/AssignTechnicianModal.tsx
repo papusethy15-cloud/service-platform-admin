@@ -522,7 +522,7 @@ export default function AssignTechnicianModal({ booking, onClose, onDone }: Prop
             </div>
             {(booking.scheduled_slot || booking.scheduled_date) && (
               <div style={{ fontSize: 11, color: '#7C3AED', marginTop: 3, fontWeight: 600 }}>
-                📅 {booking.scheduled_date ? new Date(booking.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
+                📅 {booking.scheduled_date ? new Date(booking.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' }) : ''}
                 {booking.scheduled_slot && <> · ⏰ {booking.scheduled_slot}</>}
                 <span style={{ marginLeft: 6, color: '#94A3B8', fontWeight: 400, fontSize: 10 }}>
                   (max 2 bookings/slot per technician)
@@ -795,7 +795,7 @@ export default function AssignTechnicianModal({ booking, onClose, onDone }: Prop
               {slotInfo.slot && (
                 <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 8, padding: '7px 12px', marginBottom: 10, fontSize: 11, color: '#5B21B6', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span>⏰ <b>Slot:</b> {slotInfo.slot}</span>
-                  {slotInfo.date && <span>· 📅 {new Date(slotInfo.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>}
+                  {slotInfo.date && <span>· 📅 {new Date(slotInfo.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}</span>}
                   <span style={{ marginLeft: 4, color: '#7C3AED' }}>· Max <b>{slotInfo.maxPerSlot} bookings</b> per technician for this slot</span>
                   <span style={{ marginLeft: 4, color: '#DC2626', fontWeight: 600 }}>🚫 = slot full &nbsp; ✅ = slot available</span>
                 </div>

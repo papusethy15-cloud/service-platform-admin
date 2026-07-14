@@ -33,7 +33,7 @@ export default function Audit() {
 
   const handleSearch = (e: any) => { e.preventDefault(); setPage(1); fetchData() }
 
-  const fmt = (d: string) => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' }) : '—'
+  const fmt = (d: string) => d ? new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'medium' }) : '—'
 
   return (
     <div style={{ padding: '24px 28px' }}>

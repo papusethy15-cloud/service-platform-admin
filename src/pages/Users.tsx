@@ -710,7 +710,7 @@ function DetailModal({ user, onClose, onEdit, onToggleActive, actionLoading }: {
             {[
               ['Name', user.name],['Role', user.role],['Email', user.email],['Mobile', user.mobile],
               ['City', user.city||'—'],['Status', user.is_active?'Active':'Suspended'],
-              ['Verified', user.is_verified?'Yes':'No'],['Joined', user.created_at?new Date(user.created_at).toLocaleDateString('en-IN'):'—'],
+              ['Verified', user.is_verified?'Yes':'No'],['Joined', user.created_at?new Date(user.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }):'—'],
             ].map(([l,v])=>(
               <div key={l as string} style={{ background:'#F8FAFC', borderRadius:8, padding:'10px 14px' }}>
                 <p style={{ fontSize:11, color:'#64748B', margin:'0 0 2px', textTransform:'uppercase', fontWeight:600, letterSpacing:'0.04em' }}>{l}</p>
@@ -966,7 +966,7 @@ export default function Users() {
                     <td><span style={{ fontSize:11, fontWeight:700, padding:'2px 10px', borderRadius:20, background: roleBadgeColor(u.role)+'1A', color: roleBadgeColor(u.role) }}>{u.role}</span></td>
                     <td style={{ fontSize:13, color:'#475569' }}>{u.city||'—'}</td>
                     <td><StatusBadge status={u.is_active?'ACTIVE':'INACTIVE'} /></td>
-                    <td style={{ fontSize:12, color:'#94A3B8' }}>{u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : '—'}</td>
+                    <td style={{ fontSize:12, color:'#94A3B8' }}>{u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</td>
                     <td>
                       <div style={{ display:'flex', gap:6 }}>
                         <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px' }}

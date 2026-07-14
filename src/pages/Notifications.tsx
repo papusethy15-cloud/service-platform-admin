@@ -85,7 +85,7 @@ export default function Notifications() {
     PUSH: '#7C3AED', EMAIL: '#059669', SMS: '#D97706', WHATSAPP: '#16A34A', IN_APP: '#1B4FD8'
   }
 
-  const fmt = (d: string) => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'
+  const fmt = (d: string) => d ? new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'short' }) : '—'
 
   return (
     <div style={{ padding: '24px 28px' }}>

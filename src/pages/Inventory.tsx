@@ -39,8 +39,8 @@ type PurchaseOrder = { id: string; po_number: string; vendor_id?: string; vendor
 
 // ─── helpers ────────────────────────────────────────────────
 const inr = (v: number) => `₹${(v||0).toLocaleString('en-IN')}`
-const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })
-const fmtDateTime = (s: string) => new Date(s).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric' })
+const fmtDateTime = (s: string) => new Date(s).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
 
 // ─── Shared label style ──────────────────────────────────────
 const lbl: React.CSSProperties = { display:'block', fontSize:12, fontWeight:600, marginBottom:4, color:'#374151' }

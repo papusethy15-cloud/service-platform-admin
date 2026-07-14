@@ -58,7 +58,7 @@ const statusColor = (s: string): { bg: string; color: string } => {
 }
 
 const fmtDate = (d: string) =>
-  new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })
 
 const money = (n: number) => `₹${(n || 0).toLocaleString('en-IN')}`
 

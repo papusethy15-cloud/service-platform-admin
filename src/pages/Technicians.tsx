@@ -580,7 +580,7 @@ export default function Technicians() {
                 <div style={{ fontWeight: 600, color: value === '—' ? '#CBD5E1' : '#0F172A', fontSize: 14 }}>{value}</div>
               </div>
             )
-            const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'
+            const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric' }) : '—'
             return (
               <div>
                 {/* Section: Basic */}

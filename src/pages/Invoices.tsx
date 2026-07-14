@@ -139,7 +139,7 @@ export default function Invoices() {
   }
 
   const fmt = (n: any) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-  const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
   const STATUS_COLOR: Record<string, string> = {
     PAID: '#059669', PARTIALLY_PAID: '#D97706', GENERATED: '#1B4FD8',

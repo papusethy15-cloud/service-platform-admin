@@ -594,7 +594,7 @@ export default function CallbackRequests() {
 
   const fmt = (dt?: string) => {
     if (!dt) return '—'
-    return new Date(dt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    return new Date(dt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
   // ─── Reusable sub-components ───────────────────────────────────────────────
@@ -842,7 +842,7 @@ export default function CallbackRequests() {
                                     }}>{b.status}</span>
                                   </td>
                                   <td style={{ padding: '6px 10px', color: '#64748B' }}>
-                                    {b.scheduled_date ? new Date(b.scheduled_date).toLocaleDateString('en-IN') : '—'}
+                                    {b.scheduled_date ? new Date(b.scheduled_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}
                                   </td>
                                   <td style={{ padding: '6px 10px', fontWeight: 600 }}>
                                     {b.total_amount != null ? `₹${b.total_amount}` : '—'}

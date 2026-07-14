@@ -125,10 +125,10 @@ export default function Payments() {
   }
 
   const fmt = (n: any) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-  const fmtDate = (d: string) => d ? new Date(d).toLocaleString('en-IN', {
+  const fmtDate = (d: string) => d ? new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata',
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   }) : '—'
-  const fmtDateShort = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', {
+  const fmtDateShort = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata',
     day: '2-digit', month: 'short', year: 'numeric'
   }) : '—'
 

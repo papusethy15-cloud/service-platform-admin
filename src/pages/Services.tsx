@@ -297,7 +297,7 @@ export default function Services() {
                                   : '—'}
                               </td>
                               <td style={{ fontSize: 12, color: '#94A3B8' }}>
-                                {p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '—'}
+                                {p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}
                               </td>
                               <td>
                                 <button

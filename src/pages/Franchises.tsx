@@ -123,7 +123,7 @@ export default function Franchises() {
             {[
               ['Owner', detailModal.owner_name], ['Email', detailModal.email], ['Phone', detailModal.phone],
               ['City', detailModal.city], ['State', detailModal.state], ['Territory', detailModal.territory],
-              ['Status', detailModal.status], ['Joined', detailModal.created_at ? new Date(detailModal.created_at).toLocaleDateString('en-IN') : '—'],
+              ['Status', detailModal.status], ['Joined', detailModal.created_at ? new Date(detailModal.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'],
               ['Total Bookings', detailModal.total_bookings ?? '—'], ['Revenue ₹', detailModal.revenue ? `₹${Number(detailModal.revenue).toLocaleString('en-IN')}` : '—'],
             ].map(([k, v]: any) => (
               <div key={k}>

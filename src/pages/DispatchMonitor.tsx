@@ -57,7 +57,7 @@ export default function DispatchMonitor() {
   const { subscribe, status: wsStatus } = useAdminWebSocket()
 
   const fmt = (d: string) =>
-    d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' }) : '—'
+    d ? new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'medium' }) : '—'
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -310,7 +310,7 @@ export default function DispatchMonitor() {
                         {meta.icon} {meta.label}
                       </span>
                       <span style={{ fontSize: 10, color: '#94A3B8', marginLeft: 'auto' }}>
-                        {new Date(ev.timestamp).toLocaleTimeString('en-IN')}
+                        {new Date(ev.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                       </span>
                     </div>
                     {p.booking_number && (

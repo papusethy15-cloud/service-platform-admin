@@ -36,7 +36,7 @@ interface TechDetail {
 
 // ─── Helpers ─────────────────────────────────────────────────────
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 // ─── Status pill ─────────────────────────────────────────────────
 function StatusPill({ status }: { status: string }) {
@@ -433,11 +433,11 @@ function RecordRow({
             <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>📱 {rec.customer_mobile}</div>
           )}
           <div style={{ fontSize: 11, color: '#CBD5E1', marginTop: 4 }}>
-            Collected on {new Date(rec.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+            Collected on {new Date(rec.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
           </div>
           {rec.status === 'COLLECTED' && rec.collected_at && (
             <div style={{ fontSize: 11, color: '#16A34A', marginTop: 2, fontWeight: 600 }}>
-              ✓ Admin collected on {new Date(rec.collected_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+              ✓ Admin collected on {new Date(rec.collected_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
               {rec.collected_by_name && ` · ${rec.collected_by_name}`}
             </div>
           )}
