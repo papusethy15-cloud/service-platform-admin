@@ -3,7 +3,7 @@
 // On settle: commissions are saved as PENDING (held). Wallet is NOT credited yet.
 // Wallet is credited only when admin clicks "Pay" on the Commissions page.
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Modal from './Modal'
 import Spinner from './Spinner'
 import { bookingsAPI } from '@/services/api'
@@ -26,7 +26,7 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
   const [previewLoading, setPL]     = useState(true)
   const [previewErr, setPreviewErr] = useState('')
 
-  const [overrides, setOverrides] = useState<Record<number, string>>({})
+  const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [notes, setNotes]         = useState('')
   const [saving, setSaving]       = useState(false)
   const [saveErr, setSaveErr]     = useState('')
@@ -49,7 +49,7 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
       // Empty override = backend uses its own calculated amount.
       const overrideList = (preview?.line_items || [])
         .map((item: any, idx: number) => {
-          const ov = overrides[idx]
+          const ov = overrides[String(idx)]
           if (ov === undefined || ov === '') return null  // no override typed → let backend calculate
           return { item_index: idx, commission_amount: parseFloat(ov) || 0 }
         })
@@ -68,18 +68,24 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
 
   // If admin typed an override for a row, that value wins — whether matched or unmatched.
   // Empty override = keep auto-calculated commission_amount.
-  const effectiveAmount = (item: any, idx: number): number => {
-    const ov = overrides[idx]
+  // useCallback ensures effectiveAmount always closes over the latest overrides reference.
+  const effectiveAmount = useCallback((item: any, idx: number): number => {
+    const ov = overrides[String(idx)]
     if (ov !== undefined && ov !== '') return parseFloat(ov) || 0
     return item.commission_amount || 0
-  }
+  }, [overrides])
 
-  const totalCommission = preview
-    ? (preview.line_items || []).reduce(
-        (sum: number, item: any, idx: number) => sum + effectiveAmount(item, idx),
-        0
-      )
-    : 0
+  // useMemo with explicit [preview, overrides] dep ensures the total recomputes
+  // immediately after every override keystroke — no stale closure risk.
+  const totalCommission = useMemo(
+    () => preview
+      ? (preview.line_items || []).reduce(
+          (sum: number, item: any, idx: number) => sum + effectiveAmount(item, idx),
+          0
+        )
+      : 0,
+    [preview, overrides, effectiveAmount]
+  )
 
   const hasUnmatched = preview?.line_items?.some((i: any) => i.match_status === 'unmatched')
 
@@ -190,12 +196,12 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
                   </div>
                   {/* Commission column: show effective value (override if typed, else auto) */}
                   <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 700,
-                    color: overrides[idx] !== undefined && overrides[idx] !== '' ? '#7C3AED'
+                    color: overrides[String(idx)] !== undefined && overrides[String(idx)] !== '' ? '#7C3AED'
                           : item.commission_amount != null ? '#059669' : '#F59E0B' }}>
-                    {overrides[idx] !== undefined && overrides[idx] !== ''
-                      ? money(parseFloat(overrides[idx]) || 0)
+                    {overrides[String(idx)] !== undefined && overrides[String(idx)] !== ''
+                      ? money(parseFloat(overrides[String(idx)]) || 0)
                       : item.commission_amount != null ? money(item.commission_amount) : 'No rule'}
-                    {overrides[idx] !== undefined && overrides[idx] !== '' && (
+                    {overrides[String(idx)] !== undefined && overrides[String(idx)] !== '' && (
                       <div style={{ fontSize: 9, color: '#94A3B8', fontWeight: 400 }}>
                         was {item.commission_amount != null ? money(item.commission_amount) : '—'}
                       </div>
@@ -206,16 +212,16 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
                     <input
                       type="number" min="0" step="0.01"
                       placeholder={item.commission_amount != null ? String(item.commission_amount) : '0'}
-                      value={overrides[idx] ?? ''}
-                      onChange={e => setOverrides(prev => ({ ...prev, [idx]: e.target.value }))}
+                      value={overrides[String(idx)] ?? ''}
+                      onChange={e => setOverrides(prev => ({ ...prev, [String(idx)]: e.target.value }))}
                       style={{
                         width: 88, padding: '4px 6px',
                         border: `1px solid ${
-                          overrides[idx] !== undefined && overrides[idx] !== '' ? '#7C3AED'
+                          overrides[String(idx)] !== undefined && overrides[String(idx)] !== '' ? '#7C3AED'
                           : isUnmatched ? '#FCD34D' : '#E2E8F0'
                         }`,
                         borderRadius: 5, fontSize: 12, textAlign: 'right',
-                        background: overrides[idx] !== undefined && overrides[idx] !== '' ? '#F5F3FF'
+                        background: overrides[String(idx)] !== undefined && overrides[String(idx)] !== '' ? '#F5F3FF'
                                     : isUnmatched ? '#FFFBEB' : '#fff',
                       }}
                     />
