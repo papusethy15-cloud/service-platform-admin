@@ -451,17 +451,21 @@ export default function Coupons() {
   const handleCreate = async (e: any) => {
     e.preventDefault(); setSaving(true); setErr('')
     try {
+      // Build payload explicitly — never send empty strings for optional numeric/date fields
+      // because FastAPI/Pydantic will reject "" as "unable to parse string as a number"
       const payload: any = {
-        ...form,
-        discount_value: +form.discount_value,
-        min_order_amount: +form.min_order_amount,
+        code:              form.code,
+        discount_type:     form.discount_type,
+        discount_value:    +form.discount_value,
+        min_order_amount:  +form.min_order_amount,
+        description:       form.description || undefined,
+        ...(form.domain_id          ? { domain_id:           form.domain_id }                : {}),
+        ...(form.valid_from         ? { valid_from:          form.valid_from }               : {}),
+        ...(form.valid_until        ? { valid_until:         form.valid_until }              : {}),
+        ...(form.max_discount_amount ? { max_discount_amount: +form.max_discount_amount }    : {}),
+        ...(form.max_uses           ? { max_uses:            +form.max_uses }               : {}),
+        ...(form.per_customer_limit ? { per_customer_limit:  +form.per_customer_limit }     : {}),
       }
-      if (form.max_discount_amount) payload.max_discount_amount = +form.max_discount_amount
-      if (form.max_uses)            payload.max_uses            = +form.max_uses
-      if (!form.valid_from)         delete payload.valid_from
-      if (!form.valid_until)        delete payload.valid_until
-      if (!form.domain_id)          delete payload.domain_id
-      if (form.per_customer_limit)  payload.per_customer_limit  = +form.per_customer_limit
 
       // Smart selections → API arrays
       if (selCustomers.length > 0)
