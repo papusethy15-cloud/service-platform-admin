@@ -26,7 +26,7 @@ type Movement  = { id: string; item_id: string; item_name?: string; movement_typ
 type TechStock = { item_id: string; item_name: string; sku?: string; unit: string; quantity: number; assigned_qty: number; consumed_qty: number; returned_qty: number }
 type Challan   = { id: string; challan_no: string; status: string; total_qty: number; total_value: number; from_warehouse_id: string; to_warehouse_id?: string; to_technician_id?: string; reference_no?: string; notes?: string; created_at: string; items: any[] }
 
-const TABS = ['Items', 'Purchases', 'Stock', 'Technicians', 'Ledger', 'Warehouses', 'Challans', 'Sales', 'Categories'] as const
+const TABS = ['Items', 'Purchases', 'Stock', 'Technicians', 'Ledger', 'Warehouses', 'Challans', 'Sales', 'Market Purchases', 'Categories'] as const
 type Tab = typeof TABS[number]
 
 const UNITS = ['pcs', 'kg', 'ltr', 'm', 'set', 'pair', 'box', 'roll']
@@ -61,6 +61,13 @@ export default function Inventory() {
   const [purchases, setPurchases]   = useState<PurchaseOrder[]>([])
   const [vendors, setVendors]       = useState<any[]>([])
   const [sales, setSales]           = useState<any[]>([])
+  const [mktPurchases, setMktPurchases] = useState<any[]>([])
+  const [mktLoading, setMktLoading]     = useState(false)
+  const [mktVerifyModal, setMktVerifyModal] = useState<any>(null)
+  const [mktAction, setMktAction]       = useState<'add_new'|'override_price'|'reject'>('override_price')
+  const [mktForm, setMktForm]           = useState({ override_cost_price:'', override_selling_price:'', new_item_name:'', new_cost_price:'', new_selling_price:'', category_id:'', sku:'' })
+  const [mktSaving, setMktSaving]       = useState(false)
+  const [mktErr, setMktErr]             = useState('')
 
   const [loading, setLoading]       = useState(true)
   const [page, setPage]             = useState(1)
@@ -183,12 +190,19 @@ export default function Inventory() {
     try { const r = await inventoryAPI.challans(); setChallans(r.data.data?.items || []) } catch {}
   }
 
+  const fetchMktPurchases = async () => {
+    setMktLoading(true)
+    try { const r = await inventoryAPI.marketPurchaseVerifications({ per_page: 50 }); setMktPurchases(r.data.data?.items || []) } catch {}
+    finally { setMktLoading(false) }
+  }
+
   useEffect(() => { fetchItems(page) }, [page, search, catFilter, lowOnly])
   useEffect(() => {
     if (tab === 'Ledger') fetchLedger()
     else if (tab === 'Purchases') fetchPurchases()
     else if (tab === 'Stock') fetchStock()
     else if (tab === 'Challans') fetchChallans()
+    else if (tab === 'Market Purchases') fetchMktPurchases()
   }, [tab])
 
   // ── Item detail: load per-warehouse stock ──────────────────
@@ -798,6 +812,59 @@ export default function Inventory() {
         </div>
       )}
 
+
+      {/* ══ MARKET PURCHASES TAB ════════════════════════════════ */}
+      {tab === 'Market Purchases' && (
+        <>
+          <div style={{ background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:10, padding:'12px 16px', marginBottom:16, fontSize:13, color:'#92400E' }}>
+            🛒 <strong>Market Purchase Verification</strong> — Technicians who bought parts in the field and submitted them for catalogue review appear here. You can add them as new items, update the existing item's price, or reject.
+          </div>
+          {mktLoading ? <div style={{ textAlign:'center', padding:40 }}><Spinner /></div> : mktPurchases.length === 0 ? (
+            <div style={{ textAlign:'center', padding:40, color:'#94A3B8', fontSize:14 }}>✅ No pending market purchase verifications</div>
+          ) : (
+            <table className="data-table">
+              <thead><tr>
+                <th>Part Name</th><th>Tech''s Purchase ₹</th><th>Tech''s Sale ₹</th><th>Qty</th>
+                <th>Vendor</th><th>Bill No.</th>
+                <th>Catalogue Match</th><th>Cat. Cost</th><th>Cat. Sale</th>
+                <th>Booking</th><th>Date</th><th>Action</th>
+              </tr></thead>
+              <tbody>
+                {mktPurchases.map((p: any) => (
+                  <tr key={p.id}>
+                    <td style={{ fontWeight:600 }}>{p.part_name}</td>
+                    <td style={{ color:'#DC2626', fontWeight:700 }}>{inr(p.purchase_price)}</td>
+                    <td style={{ color:'#059669', fontWeight:700 }}>{inr(p.sale_price)}</td>
+                    <td>{p.quantity}</td>
+                    <td style={{ fontSize:12 }}>{p.vendor_name || '—'}</td>
+                    <td style={{ fontSize:12 }}>{p.bill_number || '—'}</td>
+                    <td>
+                      {p.inventory_item ? (
+                        <span style={{ background:'#DBEAFE', color:'#1D4ED8', borderRadius:4, padding:'2px 8px', fontSize:12, fontWeight:600 }}>
+                          🔗 {p.inventory_item.name}
+                          {!p.inventory_item.is_active && <span style={{ marginLeft:4, color:'#DC2626', fontSize:10 }}>(inactive)</span>}
+                        </span>
+                      ) : <span style={{ color:'#94A3B8', fontSize:12 }}>New (no match)</span>}
+                    </td>
+                    <td style={{ color:'#6B7280', fontSize:12 }}>{p.inventory_item ? inr(p.inventory_item.cost_price) : '—'}</td>
+                    <td style={{ color:'#6B7280', fontSize:12 }}>{p.inventory_item ? inr(p.inventory_item.selling_price) : '—'}</td>
+                    <td style={{ fontSize:12 }}>{p.booking_id ? <a href={`/bookings?highlight=${p.booking_id}`} target="_blank" rel="noreferrer" style={{ color:'#3B82F6' }}>View</a> : '—'}</td>
+                    <td style={{ fontSize:12 }}>{p.created_at ? fmtDate(p.created_at) : '—'}</td>
+                    <td>
+                      <button className="btn btn-primary btn-sm" onClick={() => {
+                        setMktVerifyModal(p)
+                        setMktAction(p.inventory_item ? 'override_price' : 'add_new')
+                        setMktForm({ override_cost_price: String(p.purchase_price||''), override_selling_price: String(p.sale_price||''), new_item_name: p.part_name, new_cost_price: String(p.purchase_price||''), new_selling_price: String(p.sale_price||''), category_id:'', sku:'' })
+                        setMktErr('')
+                      }}>Review</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
       {/* ══ CATEGORIES TAB ═════════════════════════════════════ */}
       {tab === 'Categories' && (
         <>
@@ -819,6 +886,126 @@ export default function Inventory() {
         </>
       )}
 
+
+      {/* ── Market Purchase Verify Modal ────────────────────────── */}
+      {mktVerifyModal && (
+        <Modal title={`🛒 Review: ${mktVerifyModal.part_name}`} onClose={() => setMktVerifyModal(null)}>
+          <div style={{ fontSize:13, marginBottom:14, background:'#F8FAFC', borderRadius:8, padding:12 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              <div><span style={{ color:'#64748B' }}>Tech Purchase Price:</span> <strong style={{ color:'#DC2626' }}>{inr(mktVerifyModal.purchase_price)}</strong></div>
+              <div><span style={{ color:'#64748B' }}>Tech Sale Price:</span> <strong style={{ color:'#059669' }}>{inr(mktVerifyModal.sale_price)}</strong></div>
+              <div><span style={{ color:'#64748B' }}>Vendor:</span> {mktVerifyModal.vendor_name || '—'}</div>
+              <div><span style={{ color:'#64748B' }}>Bill No:</span> {mktVerifyModal.bill_number || '—'}</div>
+              {mktVerifyModal.inventory_item && (
+                <>
+                  <div><span style={{ color:'#64748B' }}>Catalogue Item:</span> <strong>{mktVerifyModal.inventory_item.name}</strong></div>
+                  <div><span style={{ color:'#64748B' }}>Catalogue Cost:</span> {inr(mktVerifyModal.inventory_item.cost_price)} · Sale: {inr(mktVerifyModal.inventory_item.selling_price)}</div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Action selector */}
+          <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+            {(mktVerifyModal.inventory_item
+              ? [['override_price','🔄 Update Existing Price'],['add_new','➕ Add as New Item'],['reject','❌ Reject']]
+              : [['add_new','➕ Add to Catalogue'],['reject','❌ Reject']]
+            ).map(([val, label]: any) => (
+              <button key={val} onClick={() => setMktAction(val as any)}
+                style={{ flex:1, padding:'7px 10px', borderRadius:8, border:`2px solid ${mktAction===val?'#3B82F6':'#E2E8F0'}`,
+                  background:mktAction===val?'#EFF6FF':'#fff', color:mktAction===val?'#1D4ED8':'#374151',
+                  fontWeight:mktAction===val?700:400, fontSize:12, cursor:'pointer' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {mktAction === 'override_price' && (
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:14 }}>
+              <div>
+                <label style={lbl}>New Cost Price (₹) *</label>
+                <input className="input" type="number" value={mktForm.override_cost_price}
+                  onChange={e => setMktForm(f => ({ ...f, override_cost_price: e.target.value }))} />
+              </div>
+              <div>
+                <label style={lbl}>New Sale Price (₹)</label>
+                <input className="input" type="number" value={mktForm.override_selling_price}
+                  onChange={e => setMktForm(f => ({ ...f, override_selling_price: e.target.value }))} />
+              </div>
+            </div>
+          )}
+
+          {mktAction === 'add_new' && (
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:14 }}>
+              <div style={{ gridColumn:'1 / -1' }}>
+                <label style={lbl}>Item Name *</label>
+                <input className="input" value={mktForm.new_item_name}
+                  onChange={e => setMktForm(f => ({ ...f, new_item_name: e.target.value }))} />
+              </div>
+              <div>
+                <label style={lbl}>Cost Price (₹) *</label>
+                <input className="input" type="number" value={mktForm.new_cost_price}
+                  onChange={e => setMktForm(f => ({ ...f, new_cost_price: e.target.value }))} />
+              </div>
+              <div>
+                <label style={lbl}>Sale Price (₹) *</label>
+                <input className="input" type="number" value={mktForm.new_selling_price}
+                  onChange={e => setMktForm(f => ({ ...f, new_selling_price: e.target.value }))} />
+              </div>
+              <div>
+                <label style={lbl}>SKU (optional)</label>
+                <input className="input" value={mktForm.sku}
+                  onChange={e => setMktForm(f => ({ ...f, sku: e.target.value }))} />
+              </div>
+              <div>
+                <label style={lbl}>Category (optional)</label>
+                <select className="input" value={mktForm.category_id}
+                  onChange={e => setMktForm(f => ({ ...f, category_id: e.target.value }))}>
+                  <option value="">— None —</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {mktAction === 'reject' && (
+            <div style={{ background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, padding:12, marginBottom:14, fontSize:13, color:'#991B1B' }}>
+              ❌ This part will be marked as rejected. No changes to the inventory catalogue will be made. The part is still recorded in the quotation.
+            </div>
+          )}
+
+          {mktErr && <div style={{ color:'#DC2626', fontSize:13, marginBottom:8 }}>{mktErr}</div>}
+
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+            <button className="btn btn-secondary" onClick={() => setMktVerifyModal(null)}>Cancel</button>
+            <button className="btn btn-primary" disabled={mktSaving} onClick={async () => {
+              setMktSaving(true); setMktErr('')
+              try {
+                const body: any = { action: mktAction }
+                if (mktAction === 'override_price') {
+                  if (!mktForm.override_cost_price) { setMktErr('Cost price is required'); setMktSaving(false); return }
+                  body.override_cost_price = parseFloat(mktForm.override_cost_price)
+                  if (mktForm.override_selling_price) body.override_selling_price = parseFloat(mktForm.override_selling_price)
+                } else if (mktAction === 'add_new') {
+                  if (!mktForm.new_item_name || !mktForm.new_cost_price || !mktForm.new_selling_price) { setMktErr('Name, cost and sale price are required'); setMktSaving(false); return }
+                  body.new_item_name = mktForm.new_item_name
+                  body.new_cost_price = parseFloat(mktForm.new_cost_price)
+                  body.new_selling_price = parseFloat(mktForm.new_selling_price)
+                  if (mktForm.category_id) body.category_id = mktForm.category_id
+                  if (mktForm.sku) body.sku = mktForm.sku
+                }
+                await inventoryAPI.verifyMarketPurchase(mktVerifyModal.id, body)
+                setMktVerifyModal(null)
+                fetchMktPurchases()
+              } catch (e: any) {
+                setMktErr(e?.response?.data?.detail || 'Error verifying purchase')
+              } finally { setMktSaving(false) }
+            }}>
+              {mktSaving ? 'Saving…' : mktAction === 'reject' ? '❌ Reject' : mktAction === 'add_new' ? '➕ Add to Catalogue' : '🔄 Update Price'}
+            </button>
+          </div>
+        </Modal>
+      )}
       {/* ════════════ MODALS ════════════════════════════════════ */}
 
       {/* ── Create / Edit Item Modal ───────────────────────────── */}

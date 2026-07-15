@@ -272,6 +272,8 @@ export const inventoryAPI = {
   createPurchaseOrder: (d: any)     => api.post('/inventory/purchase-orders', d),
   bookingParts:     (bookingId: string) => api.get(`/inventory/booking-parts/${bookingId}`),
   bookingConsume:   (d: any)       => api.post('/inventory/booking-consume', d),
+  marketPurchaseVerifications: (p?: any)          => api.get('/inventory/market-purchase-verifications', { params: p }),
+  verifyMarketPurchase: (partId: string, d: any)  => api.post(`/inventory/market-purchase-verifications/${partId}/verify`, d),
 }
 
 // ── Commissions ────────────────────────────────────────────────
