@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { inventoryAPI, techniciansAPI, api } from '@/services/api'
+import { inventoryAPI, techniciansAPI, domainsAPI, api } from '@/services/api'
 import PageHeader from '@/components/layout/PageHeader'
 import Pagination from '@/components/ui/Pagination'
 import Modal from '@/components/ui/Modal'
@@ -68,6 +68,7 @@ export default function Inventory() {
   const [mktForm, setMktForm]           = useState({ override_cost_price:'', override_selling_price:'', new_item_name:'', new_cost_price:'', new_selling_price:'', category_id:'', sku:'' })
   const [mktSaving, setMktSaving]       = useState(false)
   const [mktErr, setMktErr]             = useState('')
+  const [domains, setDomains]           = useState<any[]>([])
 
   const [loading, setLoading]       = useState(true)
   const [page, setPage]             = useState(1)
@@ -202,7 +203,7 @@ export default function Inventory() {
     else if (tab === 'Purchases') fetchPurchases()
     else if (tab === 'Stock') fetchStock()
     else if (tab === 'Challans') fetchChallans()
-    else if (tab === 'Market Purchases') fetchMktPurchases()
+    else if (tab === 'Market Purchases') { fetchMktPurchases(); domainsAPI.list({ per_page: 100 }).then((r: any) => setDomains(r.data.data?.items || r.data.data || [])).catch(() => {}) }
   }, [tab])
 
   // ── Item detail: load per-warehouse stock ──────────────────
@@ -824,10 +825,10 @@ export default function Inventory() {
           ) : (
             <table className="data-table">
               <thead><tr>
-                <th>Part Name</th><th>Tech''s Purchase ₹</th><th>Tech''s Sale ₹</th><th>Qty</th>
+                <th>Part Name</th><th>Tech's Purchase ₹</th><th>Tech's Sale ₹</th><th>Qty</th>
                 <th>Vendor</th><th>Bill No.</th>
                 <th>Catalogue Match</th><th>Cat. Cost</th><th>Cat. Sale</th>
-                <th>Booking</th><th>Date</th><th>Action</th>
+                <th>Domain</th><th>Booking</th><th>Date</th><th>Action</th>
               </tr></thead>
               <tbody>
                 {mktPurchases.map((p: any) => (
@@ -848,6 +849,7 @@ export default function Inventory() {
                     </td>
                     <td style={{ color:'#6B7280', fontSize:12 }}>{p.inventory_item ? inr(p.inventory_item.cost_price) : '—'}</td>
                     <td style={{ color:'#6B7280', fontSize:12 }}>{p.inventory_item ? inr(p.inventory_item.selling_price) : '—'}</td>
+                    <td style={{ fontSize:12 }}>{p.domain_name ? <span style={{ background:'#F0FDF4', color:'#166534', borderRadius:4, padding:'2px 8px', fontWeight:600 }}>{p.domain_name}</span> : '—'}</td>
                     <td style={{ fontSize:12 }}>{p.booking_id ? <a href={`/bookings?highlight=${p.booking_id}`} target="_blank" rel="noreferrer" style={{ color:'#3B82F6' }}>View</a> : '—'}</td>
                     <td style={{ fontSize:12 }}>{p.created_at ? fmtDate(p.created_at) : '—'}</td>
                     <td>
@@ -896,6 +898,9 @@ export default function Inventory() {
               <div><span style={{ color:'#64748B' }}>Tech Sale Price:</span> <strong style={{ color:'#059669' }}>{inr(mktVerifyModal.sale_price)}</strong></div>
               <div><span style={{ color:'#64748B' }}>Vendor:</span> {mktVerifyModal.vendor_name || '—'}</div>
               <div><span style={{ color:'#64748B' }}>Bill No:</span> {mktVerifyModal.bill_number || '—'}</div>
+              {mktVerifyModal.domain_name && (
+                <div style={{ gridColumn:'1 / -1' }}><span style={{ color:'#64748B' }}>Brand/Domain:</span> <strong style={{ color:'#166534' }}>{mktVerifyModal.domain_name}</strong></div>
+              )}
               {mktVerifyModal.inventory_item && (
                 <>
                   <div><span style={{ color:'#64748B' }}>Catalogue Item:</span> <strong>{mktVerifyModal.inventory_item.name}</strong></div>
