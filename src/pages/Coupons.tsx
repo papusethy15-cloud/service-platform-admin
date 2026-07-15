@@ -475,7 +475,23 @@ export default function Coupons() {
       setShowCreate(false)
       resetForm()
       fetchCoupons()
-    } catch (ex: any) { setErr(ex.response?.data?.detail || 'Failed to create coupon') } finally { setSaving(false) }
+    } catch (ex: any) {
+      const detail = ex.response?.data?.detail
+      // FastAPI 422 returns detail as an array of {type,loc,msg,input} objects
+      // FastAPI 400/404 returns detail as a plain string
+      // We must never render an object into JSX — always coerce to string
+      let errMsg = 'Failed to create coupon'
+      if (typeof detail === 'string') {
+        errMsg = detail
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        // Extract the human-readable msg from each Pydantic validation error
+        errMsg = detail.map((d: any) => {
+          const field = Array.isArray(d.loc) ? d.loc.filter((l: any) => l !== 'body').join(' → ') : ''
+          return field ? `${field}: ${d.msg}` : (d.msg || 'Validation error')
+        }).join('; ')
+      }
+      setErr(errMsg)
+    } finally { setSaving(false) }
   }
 
   const isExpired = (d: string) => d && new Date(d) < new Date()
@@ -819,7 +835,7 @@ export default function Coupons() {
 
             {err && (
               <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 12px', borderRadius: 8, fontSize: 13, marginTop: 14 }}>
-                {err}
+                {typeof err === 'string' ? err : JSON.stringify(err)}
               </div>
             )}
 
