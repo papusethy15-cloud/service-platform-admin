@@ -4,7 +4,7 @@ import PageHeader from '@/components/layout/PageHeader'
 import Spinner from '@/components/ui/Spinner'
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
-const INR = (v: number) => `₹${(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const INR = (v: number) => `₹${(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const YEARS  = [2024, 2025, 2026]
 

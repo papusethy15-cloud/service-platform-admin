@@ -35,7 +35,7 @@ interface TechDetail {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
-const fmt = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+const fmt = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 0 })}`
 const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 // ─── Status pill ─────────────────────────────────────────────────
@@ -127,7 +127,7 @@ export default function CashCollections() {
     setCollectingAll(true)
     try {
       const r = await cashCollectionsAPI.collectAll(selectedTech.technician_id, { notes })
-      showToast(`Collected ₹${r.data?.data?.total_amount_collected?.toFixed(2)} from ${selectedTech.technician_name} ✓`)
+      showToast(`Collected ₹${Math.round(r.data?.data?.total_amount_collected || 0).toLocaleString('en-IN')} from ${selectedTech.technician_name} ✓`)
       await loadSummary()
       setSelectedTech(null)
       setTechDetail(null)
@@ -446,7 +446,7 @@ function RecordRow({
           )}
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 18, color: '#1E293B' }}>{`₹${rec.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}</div>
+          <div style={{ fontWeight: 800, fontSize: 18, color: '#1E293B' }}>{`₹${rec.amount.toLocaleString('en-IN', { minimumFractionDigits: 0 })}`}</div>
           {showButton && (
             <button
               onClick={onCollect}

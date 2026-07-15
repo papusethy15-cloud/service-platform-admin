@@ -138,7 +138,7 @@ export default function Invoices() {
     } catch { alert('Failed to send WhatsApp') }
   }
 
-  const fmt = (n: any) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+  const fmt = (n: any) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
   const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
   const STATUS_COLOR: Record<string, string> = {

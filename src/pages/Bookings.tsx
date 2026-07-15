@@ -1168,8 +1168,8 @@ export default function Bookings() {
                           </div>
                         </div>
                         <div style={{ textAlign: 'right', fontSize: 13, color: '#374151' }}>{item.quantity}</div>
-                        <div style={{ textAlign: 'right', fontSize: 13, color: '#374151' }}>₹{item.unit_price?.toFixed(2)}</div>
-                        <div style={{ textAlign: 'right', fontSize: 13, fontWeight: 600, color: '#0F172A' }}>₹{item.total_price?.toFixed(2)}</div>
+                        <div style={{ textAlign: 'right', fontSize: 13, color: '#374151' }}>₹{Math.round(item.unit_price || 0).toLocaleString('en-IN')}</div>
+                        <div style={{ textAlign: 'right', fontSize: 13, fontWeight: 600, color: '#0F172A' }}>₹{Math.round(item.total_price || 0).toLocaleString('en-IN')}</div>
                         {/* Editable commission — all items editable */}
                         <div style={{ textAlign: 'right' }}>
                           <input
@@ -1178,7 +1178,7 @@ export default function Bookings() {
                             step={0.01}
                             value={displayAmt}
                             onChange={e => setSettleOverrides(o => ({ ...o, [idx]: e.target.value }))}
-                            placeholder={isMatched ? item.commission_amount?.toFixed(2) : '0.00'}
+                            placeholder={isMatched ? item.commission_amount?.toFixed(0) : '0.00'}
                             style={{
                               width: '100%', padding: '3px 7px', border: '1px solid #D1D5DB', borderRadius: 5,
                               fontSize: 13, fontWeight: 700, textAlign: 'right',
@@ -1196,7 +1196,7 @@ export default function Bookings() {
                     padding: '10px 12px', borderTop: '2px solid #E2E8F0', background: '#F0FDF4',
                     fontWeight: 700, fontSize: 14 }}>
                     <div style={{ gridColumn: '1/5', color: '#374151' }}>Total Commission</div>
-                    <div style={{ textAlign: 'right', color: '#059669' }}>₹{liveTotal.toFixed(2)}</div>
+                    <div style={{ textAlign: 'right', color: '#059669' }}>₹{Math.round(liveTotal).toLocaleString('en-IN')}</div>
                   </div>
                 </div>
 
@@ -1219,7 +1219,7 @@ export default function Bookings() {
                     onClick={handleSettle}
                     disabled={settleLoading}
                   >
-                    {settleLoading ? 'Settling…' : `🔒 Confirm — ₹${liveTotal.toFixed(2)} Commission`}
+                    {settleLoading ? 'Settling…' : `🔒 Confirm — ₹${Math.round(liveTotal).toLocaleString('en-IN')} Commission`}
                   </button>
                 </div>
               </>

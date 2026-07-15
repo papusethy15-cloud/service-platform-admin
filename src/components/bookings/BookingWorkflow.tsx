@@ -803,7 +803,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                     onClick={() => {
                       const bal = balanceByInvoiceId[inv.id] || 0
                       setPayTargetInvoice(inv)
-                      setPayAmount(bal > 0 ? bal.toFixed(2) : '')
+                      setPayAmount(bal > 0 ? String(Math.round(bal)) : '')
                       setPayMethod('CASH')
                       setPayRef('')
                       setPayNotes('')
@@ -861,7 +861,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                         onClick={() => {
                           const bal = balanceByInvoiceId[inv.id] || 0
                           setPayTargetInvoice(inv)
-                          setPayAmount(bal > 0 ? bal.toFixed(2) : '')
+                          setPayAmount(bal > 0 ? String(Math.round(bal)) : '')
                           setPayMethod('CASH')
                           setPayRef(''); setPayNotes(''); setPayDue('')
                           setPayQR(''); setPayLink(''); setPayErr('')
@@ -930,7 +930,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                       setActing(true); setErr(""); setOk("");
                       try {
                         await bookingsAPI.visitingCharge(booking.id, parseFloat(amt), notes);
-                        setOk(`✅ Visiting charge ₹${parseFloat(amt).toFixed(2)} initiated`);
+                        setOk(`✅ Visiting charge ₹${Math.round(parseFloat(amt)).toLocaleString('en-IN')} initiated`);
                         await load(); onRefresh();
                       } catch (ex: any) { setErr(extractApiError(ex, "Failed to initiate visiting charge")); }
                       finally { setActing(false); }
@@ -1500,7 +1500,7 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
               <label style={lbl}>Amount (₹) *</label>
               <input className="input" type="number" min="0.01" step="0.01"
                 value={payAmount} onChange={e => setPayAmount(e.target.value)}
-                placeholder={`e.g. ${(balanceByInvoiceId[payTargetInvoice?.id] ?? balance).toFixed(2)}`} />
+                placeholder={`e.g. ${Math.round(balanceByInvoiceId[payTargetInvoice?.id] ?? balance)}`} />
               <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 3 }}>
                 Enter partial or full amount. Outstanding balance: <b style={{ color: '#DC2626' }}>{money(balanceByInvoiceId[payTargetInvoice?.id] ?? balance)}</b>
               </div>

@@ -14,7 +14,7 @@ import Spinner from './Spinner'
 import { bookingsAPI } from '@/services/api'
 
 const money = (n: number) =>
-  `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 
 interface SettleModalProps {
   /** The booking to settle. Needs: id, booking_number, booking_id (either field accepted) */

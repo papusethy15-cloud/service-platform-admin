@@ -21,7 +21,7 @@ import { useAuthStore } from '@/store/authStore'
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const money = (n: number | null | undefined) =>
-  `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  `₹${Math.round(n || 0).toLocaleString('en-IN')}`
 const fmtDate = (d: string) =>
   d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 const fmtDT = (d: string) =>
@@ -2206,7 +2206,7 @@ async function generateQuotationPDF(q: any): Promise<void> {
     } catch { }
   }
 
-  const money = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const money = (n: number) => `₹${Math.round(n || 0).toLocaleString('en-IN')}`
   const fmtD  = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
   // Group services and parts by appliance

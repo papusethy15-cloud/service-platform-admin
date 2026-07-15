@@ -189,7 +189,7 @@ function PricePreviewPanel({ serviceId, domainId, commissionType, rate }:
         </div>
         <div style={{ textAlign: 'right' }}>
           <span style={{ fontWeight: 700, color: '#0F172A' }}>₹{preview.base_price}</span>
-          {rate > 0 && <span style={{ color: '#059669', marginLeft: 8, fontWeight: 600 }}>→ ₹{calcComm(preview.base_price).toFixed(2)} comm.</span>}
+          {rate > 0 && <span style={{ color: '#059669', marginLeft: 8, fontWeight: 600 }}>→ ₹{Math.round(calcComm(preview.base_price)).toString()} comm.</span>}
         </div>
       </div>
 
@@ -206,7 +206,7 @@ function PricePreviewPanel({ serviceId, domainId, commissionType, rate }:
               <span style={{ color: '#374151' }}>📍 {c.city_name}, {c.city_state}</span>
               <div style={{ textAlign: 'right' }}>
                 <span style={{ fontWeight: 700, color: '#7C3AED' }}>₹{c.price}</span>
-                {rate > 0 && <span style={{ color: '#059669', marginLeft: 8, fontWeight: 600 }}>→ ₹{calcComm(c.price).toFixed(2)}</span>}
+                {rate > 0 && <span style={{ color: '#059669', marginLeft: 8, fontWeight: 600 }}>→ ₹{Math.round(calcComm(c.price)).toString()}</span>}
               </div>
             </div>
           ))}
@@ -225,7 +225,7 @@ function PricePreviewPanel({ serviceId, domainId, commissionType, rate }:
               <span style={{ color: '#374151' }}>📍 {c.city_name}, {c.city_state}</span>
               <div style={{ textAlign: 'right' }}>
                 <span style={{ fontWeight: 700, color: brand }}>₹{c.price}</span>
-                {rate > 0 && <span style={{ color: '#059669', marginLeft: 8, fontWeight: 600 }}>→ ₹{calcComm(c.price).toFixed(2)}</span>}
+                {rate > 0 && <span style={{ color: '#059669', marginLeft: 8, fontWeight: 600 }}>→ ₹{Math.round(calcComm(c.price)).toString()}</span>}
               </div>
             </div>
           ))}
@@ -333,7 +333,7 @@ function InventorySearchBox({
             <div style={{ background: 'white', border: '1px solid #FDE68A', borderRadius: 5, padding: '5px 8px' }}>
               <div style={{ fontSize: 10, color: '#92400E', fontWeight: 700 }}>PROFIT</div>
               <div style={{ fontWeight: 700, color: '#059669', fontSize: 14 }}>
-                ₹{(selected.selling_price - selected.cost_price).toFixed(2)}
+                ₹{Math.round(selected.selling_price - selected.cost_price).toLocaleString('en-IN')}
                 {selected.selling_price > 0 && (
                   <span style={{ fontSize: 11, fontWeight: 400, color: '#64748B', marginLeft: 4 }}>
                     ({((selected.selling_price - selected.cost_price) / selected.selling_price * 100).toFixed(1)}%)
@@ -1068,7 +1068,7 @@ export default function CommissionGroups() {
                           }
                           return (
                             <div style={{ fontSize: 11, color: '#059669', marginTop: 3, fontWeight: 600 }}>
-                              Preview: ₹{previewAmt.toFixed(2)} per unit ({previewBase})
+                              Preview: ₹{Math.round(previewAmt).toLocaleString('en-IN')} per unit ({previewBase})
                             </div>
                           )
                         })()}

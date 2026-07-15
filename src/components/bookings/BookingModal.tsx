@@ -230,8 +230,8 @@ export default function BookingModal({
   const basePrice      = selSvc?.base_price ?? 0
   const effectivePrice = cityPrice ? cityPrice.price : basePrice
   const gstPct         = selSvc?.gst_percent ?? 0
-  const gstAmt         = +(effectivePrice * gstPct / 100).toFixed(2)
-  const totalPrice     = +(effectivePrice + gstAmt).toFixed(2)
+  const gstAmt         = Math.round(effectivePrice * gstPct / 100)
+  const totalPrice     = Math.round(effectivePrice + gstAmt)
   const selAppl        = appliances.find((a: any) => a.id === form.appliance_id)
 
   // ── mobile lookup → go to preview step ──

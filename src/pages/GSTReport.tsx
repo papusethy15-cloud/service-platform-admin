@@ -37,7 +37,7 @@ export default function GSTReport() {
 
   useEffect(() => { fetchReport() }, [year, month])
 
-  const fmt = (n: any) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+  const fmt = (n: any) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 
   const handleExportCSV = () => {
     if (!gst?.line_items?.length) return
