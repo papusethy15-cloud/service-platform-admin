@@ -54,6 +54,7 @@ export default function Inventory() {
   const [brands, setBrands]         = useState<Brand[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [movements, setMovements]   = useState<Movement[]>([])
+  const [deletingMovId, setDeletingMovId] = useState<string|null>(null)
   const [techList, setTechList]     = useState<any[]>([])
   const [techStock, setTechStock]   = useState<TechStock[]>([])
   const [stockSummary, setStockSummary] = useState<any[]>([])
@@ -64,10 +65,23 @@ export default function Inventory() {
   const [mktPurchases, setMktPurchases] = useState<any[]>([])
   const [mktLoading, setMktLoading]     = useState(false)
   const [mktVerifyModal, setMktVerifyModal] = useState<any>(null)
-  const [mktAction, setMktAction]       = useState<'add_new'|'override_price'|'reject'>('override_price')
-  const [mktForm, setMktForm]           = useState({ override_cost_price:'', override_selling_price:'', new_item_name:'', new_cost_price:'', new_selling_price:'', category_id:'', sku:'' })
+  const [mktAction, setMktAction]       = useState<'add_new'|'link_and_update'|'reject'>('add_new')
+  const [mktForm, setMktForm]           = useState<any>({
+    // link_and_update fields
+    override_cost_price:'', override_selling_price:'',
+    selected_item_id:'', selected_item_name:'',
+    // add_new full fields
+    new_item_name:'', new_cost_price:'', new_selling_price:'',
+    category_ids:[] as string[], sku:'', barcode:'', brand_id:'',
+    unit:'pcs', description:'', hsn_code:'', gst_percent:18,
+    mrp:0, is_consumable:false, is_serialised:false,
+  })
   const [mktSaving, setMktSaving]       = useState(false)
   const [mktErr, setMktErr]             = useState('')
+  // item search for link_and_update
+  const [mktItemSearch, setMktItemSearch]   = useState('')
+  const [mktItemResults, setMktItemResults] = useState<any[]>([])
+  const [mktItemSearching, setMktItemSearching] = useState(false)
   const [domains, setDomains]           = useState<any[]>([])
 
   const [loading, setLoading]       = useState(true)
@@ -669,7 +683,7 @@ export default function Inventory() {
       {tab === 'Ledger' && (
         <div className="card">
           <table className="data-table">
-            <thead><tr><th>Date</th><th>Part</th><th>Movement</th><th>Qty</th><th>From → To</th><th>Ref / Reason</th><th>Booking</th></tr></thead>
+            <thead><tr><th>Date</th><th>Part</th><th>Movement</th><th>Qty</th><th>From → To</th><th>Ref / Reason</th><th>Booking</th><th>Action</th></tr></thead>
             <tbody>
               {movements.length === 0
                 ? <tr><td colSpan={7} style={{ textAlign:'center', color:'#94A3B8', padding:40 }}>No movements recorded yet</td></tr>
@@ -689,6 +703,25 @@ export default function Inventory() {
                         </td>
                         <td style={{ fontSize:12, color:'#64748B' }}>{m.reason || m.notes || '—'}</td>
                         <td style={{ fontSize:12 }}>{m.booking_id ? m.booking_id.slice(0,8) : '—'}</td>
+                        <td>
+                          <button
+                            disabled={deletingMovId === m.id}
+                            onClick={async () => {
+                              if (!window.confirm(`Delete this ${m.movement_type} movement (qty: ${m.quantity}) for "${m.item_name}"? This will reverse the stock impact.`)) return
+                              setDeletingMovId(m.id)
+                              try {
+                                await inventoryAPI.deleteMovement(m.id)
+                                setMovements(prev => prev.filter(x => x.id !== m.id))
+                                // refresh items list to reflect corrected stock
+                                fetchItems()
+                              } catch (e: any) {
+                                alert(e?.response?.data?.detail || 'Failed to delete movement')
+                              } finally { setDeletingMovId(null) }
+                            }}
+                            style={{ fontSize:11, padding:'2px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', opacity: deletingMovId === m.id ? 0.5 : 1 }}>
+                            {deletingMovId === m.id ? '…' : '🗑 Delete'}
+                          </button>
+                        </td>
                       </tr>
                     )
                   })}
@@ -855,8 +888,21 @@ export default function Inventory() {
                     <td>
                       <button className="btn btn-primary btn-sm" onClick={() => {
                         setMktVerifyModal(p)
-                        setMktAction(p.inventory_item ? 'override_price' : 'add_new')
-                        setMktForm({ override_cost_price: String(p.purchase_price||''), override_selling_price: String(p.sale_price||''), new_item_name: p.part_name, new_cost_price: String(p.purchase_price||''), new_selling_price: String(p.sale_price||''), category_id:'', sku:'' })
+                        setMktAction(p.inventory_item ? 'link_and_update' : 'add_new')
+                        setMktForm({
+                          override_cost_price: String(p.purchase_price||''),
+                          override_selling_price: String(p.sale_price||''),
+                          selected_item_id: p.inventory_item?.id || '',
+                          selected_item_name: p.inventory_item?.name || '',
+                          new_item_name: p.part_name,
+                          new_cost_price: String(p.purchase_price||''),
+                          new_selling_price: String(p.sale_price||''),
+                          category_ids: [], sku: '', barcode: '', brand_id: '',
+                          unit: 'pcs', description: '', hsn_code: '', gst_percent: 18,
+                          mrp: 0, is_consumable: false, is_serialised: false,
+                        })
+                        setMktItemSearch('')
+                        setMktItemResults([])
                         setMktErr('')
                       }}>Review</button>
                     </td>
@@ -913,10 +959,10 @@ export default function Inventory() {
           {/* Action selector */}
           <div style={{ display:'flex', gap:8, marginBottom:14 }}>
             {(mktVerifyModal.inventory_item
-              ? [['override_price','🔄 Update Existing Price'],['add_new','➕ Add as New Item'],['reject','❌ Reject']]
+              ? [['link_and_update','🔄 Update Existing Price'],['add_new','➕ Add as New Item'],['reject','❌ Reject']]
               : [['add_new','➕ Add to Catalogue'],['reject','❌ Reject']]
             ).map(([val, label]: any) => (
-              <button key={val} onClick={() => setMktAction(val as any)}
+              <button key={val} onClick={() => { setMktAction(val as any); setMktItemSearch(''); setMktItemResults([]) }}
                 style={{ flex:1, padding:'7px 10px', borderRadius:8, border:`2px solid ${mktAction===val?'#3B82F6':'#E2E8F0'}`,
                   background:mktAction===val?'#EFF6FF':'#fff', color:mktAction===val?'#1D4ED8':'#374151',
                   fontWeight:mktAction===val?700:400, fontSize:12, cursor:'pointer' }}>
@@ -925,50 +971,160 @@ export default function Inventory() {
             ))}
           </div>
 
-          {mktAction === 'override_price' && (
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:14 }}>
-              <div>
-                <label style={lbl}>New Cost Price (₹) *</label>
-                <input className="input" type="number" value={mktForm.override_cost_price}
-                  onChange={e => setMktForm(f => ({ ...f, override_cost_price: e.target.value }))} />
+          {mktAction === 'link_and_update' && (
+            <div style={{ marginBottom:14 }}>
+              <div style={{ background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:8, padding:'10px 12px', marginBottom:10, fontSize:12, color:'#92400E' }}>
+                🔍 Search and select the existing catalogue item whose price you want to update. The tech's market purchase will be linked to it.
               </div>
-              <div>
-                <label style={lbl}>New Sale Price (₹)</label>
-                <input className="input" type="number" value={mktForm.override_selling_price}
-                  onChange={e => setMktForm(f => ({ ...f, override_selling_price: e.target.value }))} />
+              <label style={lbl}>Search Existing Part *</label>
+              <div style={{ position:'relative', marginBottom:10 }}>
+                <input className="input" placeholder="Type part name to search…" value={mktItemSearch}
+                  onChange={async e => {
+                    const q = e.target.value
+                    setMktItemSearch(q)
+                    setMktForm((f: any) => ({ ...f, selected_item_id: '', selected_item_name: '' }))
+                    if (q.trim().length < 2) { setMktItemResults([]); return }
+                    setMktItemSearching(true)
+                    try {
+                      const r = await inventoryAPI.list({ search: q, per_page: 10 })
+                      setMktItemResults(r.data.data?.items || [])
+                    } catch { setMktItemResults([]) }
+                    finally { setMktItemSearching(false) }
+                  }} />
+                {mktItemSearching && <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'#64748B' }}>Searching…</span>}
+                {mktItemResults.length > 0 && !mktForm.selected_item_id && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:50, background:'#fff', border:'1px solid #E2E8F0', borderRadius:8, boxShadow:'0 4px 12px rgba(0,0,0,0.08)', maxHeight:200, overflowY:'auto' }}>
+                    {mktItemResults.map((it: any) => (
+                      <div key={it.id} onClick={() => {
+                        setMktForm((f: any) => ({ ...f, selected_item_id: it.id, selected_item_name: it.name, override_cost_price: String(it.cost_price||''), override_selling_price: String(it.selling_price||'') }))
+                        setMktItemSearch(it.name)
+                        setMktItemResults([])
+                      }} style={{ padding:'8px 12px', cursor:'pointer', fontSize:13, borderBottom:'1px solid #F1F5F9', display:'flex', justifyContent:'space-between', alignItems:'center' }}
+                        onMouseEnter={e => (e.currentTarget.style.background='#F8FAFC')}
+                        onMouseLeave={e => (e.currentTarget.style.background='#fff')}>
+                        <span><strong>{it.name}</strong>{it.sku ? <span style={{ marginLeft:6, fontSize:11, color:'#64748B' }}>SKU: {it.sku}</span> : ''}</span>
+                        <span style={{ fontSize:12, color:'#059669', fontWeight:600 }}>₹{it.cost_price} / ₹{it.selling_price}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {mktForm.selected_item_id && (
+                <div style={{ background:'#F0FDF4', border:'1px solid #BBF7D0', borderRadius:8, padding:'8px 12px', marginBottom:10, fontSize:13 }}>
+                  ✅ Selected: <strong>{mktForm.selected_item_name}</strong>
+                  <button onClick={() => { setMktForm((f: any) => ({ ...f, selected_item_id: '', selected_item_name: '' })); setMktItemSearch('') }}
+                    style={{ marginLeft:10, fontSize:11, color:'#DC2626', background:'none', border:'none', cursor:'pointer' }}>✕ Clear</button>
+                </div>
+              )}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                <div>
+                  <label style={lbl}>New Cost Price (₹) *</label>
+                  <input className="input" type="number" value={mktForm.override_cost_price}
+                    onChange={e => setMktForm((f: any) => ({ ...f, override_cost_price: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>New Sale Price (₹)</label>
+                  <input className="input" type="number" value={mktForm.override_selling_price}
+                    onChange={e => setMktForm((f: any) => ({ ...f, override_selling_price: e.target.value }))} />
+                </div>
               </div>
             </div>
           )}
 
           {mktAction === 'add_new' && (
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:14 }}>
-              <div style={{ gridColumn:'1 / -1' }}>
-                <label style={lbl}>Item Name *</label>
-                <input className="input" value={mktForm.new_item_name}
-                  onChange={e => setMktForm(f => ({ ...f, new_item_name: e.target.value }))} />
-              </div>
-              <div>
-                <label style={lbl}>Cost Price (₹) *</label>
-                <input className="input" type="number" value={mktForm.new_cost_price}
-                  onChange={e => setMktForm(f => ({ ...f, new_cost_price: e.target.value }))} />
-              </div>
-              <div>
-                <label style={lbl}>Sale Price (₹) *</label>
-                <input className="input" type="number" value={mktForm.new_selling_price}
-                  onChange={e => setMktForm(f => ({ ...f, new_selling_price: e.target.value }))} />
-              </div>
-              <div>
-                <label style={lbl}>SKU (optional)</label>
-                <input className="input" value={mktForm.sku}
-                  onChange={e => setMktForm(f => ({ ...f, sku: e.target.value }))} />
-              </div>
-              <div>
-                <label style={lbl}>Category (optional)</label>
-                <select className="input" value={mktForm.category_id}
-                  onChange={e => setMktForm(f => ({ ...f, category_id: e.target.value }))}>
-                  <option value="">— None —</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-                </select>
+            <div style={{ maxHeight:360, overflowY:'auto', paddingRight:4, marginBottom:14 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                <div style={{ gridColumn:'1 / -1' }}>
+                  <label style={lbl}>Part Name *</label>
+                  <input className="input" value={mktForm.new_item_name}
+                    onChange={e => setMktForm((f: any) => ({ ...f, new_item_name: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>Cost Price (₹) *</label>
+                  <input className="input" type="number" value={mktForm.new_cost_price}
+                    onChange={e => setMktForm((f: any) => ({ ...f, new_cost_price: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>Sale Price (₹) *</label>
+                  <input className="input" type="number" value={mktForm.new_selling_price}
+                    onChange={e => setMktForm((f: any) => ({ ...f, new_selling_price: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>MRP (₹)</label>
+                  <input className="input" type="number" value={mktForm.mrp}
+                    onChange={e => setMktForm((f: any) => ({ ...f, mrp: +e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>SKU</label>
+                  <input className="input" value={mktForm.sku}
+                    onChange={e => setMktForm((f: any) => ({ ...f, sku: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>Barcode</label>
+                  <input className="input" value={mktForm.barcode}
+                    onChange={e => setMktForm((f: any) => ({ ...f, barcode: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>HSN Code</label>
+                  <input className="input" value={mktForm.hsn_code}
+                    onChange={e => setMktForm((f: any) => ({ ...f, hsn_code: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>Unit *</label>
+                  <select className="input" value={mktForm.unit}
+                    onChange={e => setMktForm((f: any) => ({ ...f, unit: e.target.value }))}>
+                    {['pcs','kg','ltr','m','set','pair','box','roll'].map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>GST %</label>
+                  <select className="input" value={mktForm.gst_percent}
+                    onChange={e => setMktForm((f: any) => ({ ...f, gst_percent: +e.target.value }))}>
+                    {[0,5,12,18,28].map(g => <option key={g} value={g}>{g}%</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Brand</label>
+                  <select className="input" value={mktForm.brand_id}
+                    onChange={e => setMktForm((f: any) => ({ ...f, brand_id: e.target.value }))}>
+                    <option value="">— No brand / generic —</option>
+                    {brands.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+                {/* Multi-category picker */}
+                <div style={{ gridColumn:'1 / -1' }}>
+                  <label style={lbl}>Categories <span style={{ fontWeight:400, color:'#64748B', fontSize:11 }}>(select all that apply)</span></label>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'8px 12px', background:'#F8FAFC', borderRadius:8, border:'1px solid #E2E8F0' }}>
+                    {categories.length === 0
+                      ? <span style={{ fontSize:12, color:'#94A3B8' }}>No categories available.</span>
+                      : categories.map((c: any) => {
+                          const checked = (mktForm.category_ids||[]).includes(c.id)
+                          return (
+                            <label key={c.id} style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px', borderRadius:20, cursor:'pointer', fontSize:13, fontWeight:checked?600:400, background:checked?'#DBEAFE':'#fff', border:`1px solid ${checked?'#3B82F6':'#E2E8F0'}`, color:checked?'#1D4ED8':'#334155', userSelect:'none' }}>
+                              <input type="checkbox" checked={checked} style={{ display:'none' }}
+                                onChange={e => setMktForm((f: any) => ({ ...f, category_ids: e.target.checked ? [...(f.category_ids||[]), c.id] : (f.category_ids||[]).filter((id: string) => id !== c.id) }))} />
+                              <span style={{ fontSize:14 }}>{c.icon||'📦'}</span>{c.name}
+                            </label>
+                          )
+                        })
+                    }
+                  </div>
+                </div>
+                <div style={{ gridColumn:'1 / -1' }}>
+                  <label style={lbl}>Description</label>
+                  <textarea className="input" rows={2} style={{ resize:'vertical' }} value={mktForm.description}
+                    onChange={e => setMktForm((f: any) => ({ ...f, description: e.target.value }))} />
+                </div>
+                <div style={{ gridColumn:'1 / -1', display:'flex', gap:20 }}>
+                  <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, cursor:'pointer' }}>
+                    <input type="checkbox" checked={mktForm.is_consumable}
+                      onChange={e => setMktForm((f: any) => ({ ...f, is_consumable: e.target.checked }))} /> Consumable
+                  </label>
+                  <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, cursor:'pointer' }}>
+                    <input type="checkbox" checked={mktForm.is_serialised}
+                      onChange={e => setMktForm((f: any) => ({ ...f, is_serialised: e.target.checked }))} /> Serialised
+                  </label>
+                </div>
               </div>
             </div>
           )}
@@ -987,17 +1143,28 @@ export default function Inventory() {
               setMktSaving(true); setMktErr('')
               try {
                 const body: any = { action: mktAction }
-                if (mktAction === 'override_price') {
-                  if (!mktForm.override_cost_price) { setMktErr('Cost price is required'); setMktSaving(false); return }
+                if (mktAction === 'link_and_update') {
+                  if (!mktForm.selected_item_id) { setMktErr('Please search and select an existing part first'); setMktSaving(false); return }
+                  if (!mktForm.override_cost_price) { setMktErr('New cost price is required'); setMktSaving(false); return }
+                  body.inventory_item_id = mktForm.selected_item_id
                   body.override_cost_price = parseFloat(mktForm.override_cost_price)
                   if (mktForm.override_selling_price) body.override_selling_price = parseFloat(mktForm.override_selling_price)
                 } else if (mktAction === 'add_new') {
-                  if (!mktForm.new_item_name || !mktForm.new_cost_price || !mktForm.new_selling_price) { setMktErr('Name, cost and sale price are required'); setMktSaving(false); return }
+                  if (!mktForm.new_item_name || !mktForm.new_cost_price || !mktForm.new_selling_price) { setMktErr('Part name, cost price and sale price are required'); setMktSaving(false); return }
                   body.new_item_name = mktForm.new_item_name
                   body.new_cost_price = parseFloat(mktForm.new_cost_price)
                   body.new_selling_price = parseFloat(mktForm.new_selling_price)
-                  if (mktForm.category_id) body.category_id = mktForm.category_id
-                  if (mktForm.sku) body.sku = mktForm.sku
+                  body.category_ids = mktForm.category_ids || []
+                  body.sku = mktForm.sku || undefined
+                  body.barcode = mktForm.barcode || undefined
+                  body.brand_id = mktForm.brand_id || undefined
+                  body.unit = mktForm.unit || 'pcs'
+                  body.description = mktForm.description || undefined
+                  body.hsn_code = mktForm.hsn_code || undefined
+                  body.gst_percent = mktForm.gst_percent || 18
+                  body.mrp = mktForm.mrp || undefined
+                  body.is_consumable = mktForm.is_consumable || false
+                  body.is_serialised = mktForm.is_serialised || false
                 }
                 await inventoryAPI.verifyMarketPurchase(mktVerifyModal.id, body)
                 setMktVerifyModal(null)
@@ -1006,7 +1173,7 @@ export default function Inventory() {
                 setMktErr(e?.response?.data?.detail || 'Error verifying purchase')
               } finally { setMktSaving(false) }
             }}>
-              {mktSaving ? 'Saving…' : mktAction === 'reject' ? '❌ Reject' : mktAction === 'add_new' ? '➕ Add to Catalogue' : '🔄 Update Price'}
+              {mktSaving ? 'Saving…' : mktAction === 'reject' ? '❌ Reject' : mktAction === 'add_new' ? '➕ Add to Catalogue' : '🔄 Link & Update Price'}
             </button>
           </div>
         </Modal>
