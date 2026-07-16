@@ -274,7 +274,7 @@ export const inventoryAPI = {
   bookingConsume:   (d: any)       => api.post('/inventory/booking-consume', d),
   marketPurchaseVerifications: (p?: any)          => api.get('/inventory/market-purchase-verifications', { params: p }),
   verifyMarketPurchase: (partId: string, d: any)  => api.post(`/inventory/market-purchase-verifications/${partId}/verify`, d),
-  deleteMovement:       (movId: string)           => api.delete(`/inventory/movements/${movId}`),
+  deleteMovement:       (movId: string, force?: boolean) => api.delete(`/inventory/movements/${movId}${force ? '?force=true' : ''}`),
 }
 
 // ── Commissions ────────────────────────────────────────────────

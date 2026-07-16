@@ -707,43 +707,15 @@ export default function Inventory() {
                           <button
                             disabled={deletingMovId === m.id}
                             onClick={async () => {
+                              if (!window.confirm(`Delete this ${m.movement_type} movement (qty: ${m.quantity}) for "${m.item_name}"? This will reverse the stock impact.`)) return
                               setDeletingMovId(m.id)
                               try {
-                                // Implement 6: First call without force to check for quotation linkage
-                                const checkRes = await inventoryAPI.deleteMovement(m.id)
-                                const checkData = checkRes.data?.data
-                                if (checkData?.requires_confirmation) {
-                                  // Quotation linked but not invoiced — show detailed warning
-                                  const q = checkData.quotation
-                                  const confirmed = window.confirm(
-                                    `⚠️ QUOTATION LINKED\n\n` +
-                                    `This movement is used in Quotation ${q?.quotation_number} (status: ${q?.status}).\n\n` +
-                                    `Part: ${q?.part_name} × ${q?.part_qty}\n\n` +
-                                    `If you proceed:\n` +
-                                    `• The part will be removed from the quotation\n` +
-                                    `• ${q?.part_qty} × "${q?.part_name}" will be returned to the technician's assigned stock\n\n` +
-                                    `This CANNOT be undone. Proceed?`
-                                  )
-                                  if (!confirmed) { setDeletingMovId(null); return }
-                                  // Confirmed — call with force=true to execute
-                                  await inventoryAPI.deleteMovement(m.id, true)
-                                }
-                                // Success (either no quotation link, or force confirmed)
+                                await inventoryAPI.deleteMovement(m.id)
                                 setMovements(prev => prev.filter(x => x.id !== m.id))
+                                // refresh items list to reflect corrected stock
                                 fetchItems()
                               } catch (e: any) {
-                                const detail = e?.response?.data?.detail
-                                if (detail?.error === 'INVOICED_QUOTATION') {
-                                  // Block: quotation already converted to invoice
-                                  alert(
-                                    `🚫 CANNOT DELETE — QUOTATION INVOICED\n\n` +
-                                    `This movement is linked to Quotation ${detail.quotation?.quotation_number} ` +
-                                    `which has already been converted to Invoice ${detail.invoice?.invoice_number}.\n\n` +
-                                    `You must remove the invoice before deleting this movement.`
-                                  )
-                                } else {
-                                  alert(typeof detail === 'string' ? detail : 'Failed to delete movement')
-                                }
+                                alert(e?.response?.data?.detail || 'Failed to delete movement')
                               } finally { setDeletingMovId(null) }
                             }}
                             style={{ fontSize:11, padding:'2px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', opacity: deletingMovId === m.id ? 0.5 : 1 }}>
