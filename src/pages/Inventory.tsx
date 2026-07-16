@@ -867,8 +867,14 @@ export default function Inventory() {
                 {mktPurchases.map((p: any) => (
                   <tr key={p.id}>
                     <td style={{ fontWeight:600 }}>{p.part_name}</td>
-                    <td style={{ color:'#DC2626', fontWeight:700 }}>{inr(p.purchase_price)}</td>
-                    <td style={{ color:'#059669', fontWeight:700 }}>{inr(p.sale_price)}</td>
+                    <td style={{ color:'#DC2626', fontWeight:700 }}>
+                      {inr(Number(p.purchase_price||0) / (Number(p.quantity)||1))}
+                      {Number(p.quantity) > 1 && <span style={{ fontSize:10, color:'#94A3B8', marginLeft:4 }}>×{p.quantity}</span>}
+                    </td>
+                    <td style={{ color:'#059669', fontWeight:700 }}>
+                      {inr(Number(p.sale_price||0) / (Number(p.quantity)||1))}
+                      {Number(p.quantity) > 1 && <span style={{ fontSize:10, color:'#94A3B8', marginLeft:4 }}>×{p.quantity}</span>}
+                    </td>
                     <td>{p.quantity}</td>
                     <td style={{ fontSize:12 }}>{p.vendor_name || '—'}</td>
                     <td style={{ fontSize:12 }}>{p.bill_number || '—'}</td>
@@ -889,14 +895,17 @@ export default function Inventory() {
                       <button className="btn btn-primary btn-sm" onClick={() => {
                         setMktVerifyModal(p)
                         setMktAction(p.inventory_item ? 'link_and_update' : 'add_new')
+                        const _qty = Number(p.quantity) || 1
+                        const _unitCost = Number(p.purchase_price || 0) / _qty
+                        const _unitSale = Number(p.sale_price || 0) / _qty
                         setMktForm({
-                          override_cost_price: String(p.purchase_price||''),
-                          override_selling_price: String(p.sale_price||''),
+                          override_cost_price: String(_unitCost||''),
+                          override_selling_price: String(_unitSale||''),
                           selected_item_id: p.inventory_item?.id || '',
                           selected_item_name: p.inventory_item?.name || '',
                           new_item_name: p.part_name,
-                          new_cost_price: String(p.purchase_price||''),
-                          new_selling_price: String(p.sale_price||''),
+                          new_cost_price: String(_unitCost||''),
+                          new_selling_price: String(_unitSale||''),
                           category_ids: [], sku: '', barcode: '', brand_id: '',
                           unit: 'pcs', description: '', hsn_code: '', gst_percent: 18,
                           mrp: 0, is_consumable: false, is_serialised: false,
@@ -940,8 +949,25 @@ export default function Inventory() {
         <Modal title={`🛒 Review: ${mktVerifyModal.part_name}`} onClose={() => setMktVerifyModal(null)}>
           <div style={{ fontSize:13, marginBottom:14, background:'#F8FAFC', borderRadius:8, padding:12 }}>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              <div><span style={{ color:'#64748B' }}>Tech Purchase Price:</span> <strong style={{ color:'#DC2626' }}>{inr(mktVerifyModal.purchase_price)}</strong></div>
-              <div><span style={{ color:'#64748B' }}>Tech Sale Price:</span> <strong style={{ color:'#059669' }}>{inr(mktVerifyModal.sale_price)}</strong></div>
+              <div>
+                <span style={{ color:'#64748B' }}>Tech Purchase Price:</span>{' '}
+                <strong style={{ color:'#DC2626' }}>{inr(Number(mktVerifyModal.purchase_price||0) / (Number(mktVerifyModal.quantity)||1))}</strong>
+                {Number(mktVerifyModal.quantity) > 1 && (
+                  <span style={{ fontSize:11, color:'#94A3B8', marginLeft:6 }}>
+                    per unit (total: {inr(mktVerifyModal.purchase_price)} × {mktVerifyModal.quantity})
+                  </span>
+                )}
+              </div>
+              <div>
+                <span style={{ color:'#64748B' }}>Tech Sale Price:</span>{' '}
+                <strong style={{ color:'#059669' }}>{inr(Number(mktVerifyModal.sale_price||0) / (Number(mktVerifyModal.quantity)||1))}</strong>
+                {Number(mktVerifyModal.quantity) > 1 && (
+                  <span style={{ fontSize:11, color:'#94A3B8', marginLeft:6 }}>
+                    per unit (total: {inr(mktVerifyModal.sale_price)} × {mktVerifyModal.quantity})
+                  </span>
+                )}
+              </div>
+              <div><span style={{ color:'#64748B' }}>Quantity:</span> <strong>{mktVerifyModal.quantity || 1}</strong></div>
               <div><span style={{ color:'#64748B' }}>Vendor:</span> {mktVerifyModal.vendor_name || '—'}</div>
               <div><span style={{ color:'#64748B' }}>Bill No:</span> {mktVerifyModal.bill_number || '—'}</div>
               {mktVerifyModal.domain_name && (
