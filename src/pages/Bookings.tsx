@@ -113,10 +113,18 @@ export default function Bookings() {
 
   const [assignBkg,    setAssignBkg]    = useState<any>(null)
 
-  const [reschBkg,    setReschBkg]    = useState<any>(null)
-  const [reschDate,   setReschDate]   = useState('')
-  const [reschSlot,   setReschSlot]   = useState('')
-  const [reschSaving, setReschSaving] = useState(false)
+  const [reschBkg,          setReschBkg]          = useState<any>(null)
+  const [reschDate,         setReschDate]         = useState('')
+  const [reschSlot,         setReschSlot]         = useState('')
+  const [reschSaving,       setReschSaving]       = useState(false)
+  const [reschSlotCounts,   setReschSlotCounts]   = useState<Record<string, number>>({})
+  const [reschLoadingSlots, setReschLoadingSlots] = useState(false)
+  const [reschSlotDetail,   setReschSlotDetail]   = useState<any>(null)  // technician conflict info
+  const [reschLoadingDetail,setReschLoadingDetail] = useState(false)
+
+  // Platform-level slot caps (admin sees all bookings, not per-technician)
+  const RESCH_SOFT_CAP = 5
+  const RESCH_HARD_CAP = 10
 
   // Edit booking
   const [editBkg,    setEditBkg]    = useState<any>(null)
@@ -252,15 +260,42 @@ export default function Bookings() {
   }
 
   // ── reschedule ──
+  const fetchReschSlotCounts = useCallback(async (date: string) => {
+    if (!date) { setReschSlotCounts({}); return }
+    setReschLoadingSlots(true)
+    try {
+      const res = await bookingsAPI.slotSummary(date)
+      setReschSlotCounts(res.data?.data?.slot_counts || {})
+    } catch {
+      setReschSlotCounts({})
+    } finally {
+      setReschLoadingSlots(false)
+    }
+  }, [])
+
+  // fetch per-slot technician conflict detail (Implement 4)
+  const fetchReschSlotDetail = useCallback(async (date: string, slot: string) => {
+    if (!date || !slot) { setReschSlotDetail(null); return }
+    try {
+      const res = await bookingsAPI.slotDetail(date, slot)
+      setReschSlotDetail(res.data?.data || null)
+    } catch {
+      setReschSlotDetail(null)
+    }
+  }, [])
+
   const doReschedule = async () => {
-    if (!reschBkg || !reschDate) return
+    if (!reschBkg || !reschDate || !reschSlot) return
+    const count = reschSlotCounts[reschSlot] || 0
+    if (count >= RESCH_HARD_CAP) return   // blocked by UI already
     setReschSaving(true)
     try {
       await bookingsAPI.reschedule(reschBkg.id, {
         scheduled_date: reschDate + 'T00:00:00',
-        scheduled_slot: reschSlot || undefined,
+        scheduled_slot: reschSlot,
       })
-      setReschBkg(null); setReschDate(''); setReschSlot(''); fetchBookings()
+      setReschBkg(null); setReschDate(''); setReschSlot('')
+      setReschSlotCounts({}); setReschSlotDetail(null); fetchBookings()
     } catch {} finally { setReschSaving(false) }
   }
 
@@ -1016,33 +1051,137 @@ export default function Bookings() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════
-          RESCHEDULE MODAL
+          RESCHEDULE MODAL — with slot availability
       ══════════════════════════════════════════════════════════════ */}
-      {reschBkg && (
-        <Modal title="Reschedule Booking" onClose={() => setReschBkg(null)} size="sm">
-          <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
-            <b>{reschBkg.booking_number}</b> · {reschBkg.customer_name}
-            <div style={{ fontSize: 12, color: '#7C3AED', marginTop: 2 }}>Currently: {fmtDate(reschBkg.scheduled_date)}{reschBkg.scheduled_slot && reschBkg.scheduled_slot !== '—' ? ` · ${reschBkg.scheduled_slot}` : ''}</div>
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label style={lbl}>New Date *</label>
-            <input className="input" type="date" value={reschDate} onChange={e => setReschDate(e.target.value)} min={todayIST()} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={lbl}>New Time Slot</label>
-            <select className="input" value={reschSlot} onChange={e => setReschSlot(e.target.value)}>
-              <option value="">— Keep existing —</option>
-              {SLOTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn btn-primary" onClick={doReschedule} disabled={!reschDate || reschSaving}>
-              {reschSaving ? <Spinner size="sm" /> : 'Reschedule'}
-            </button>
-            <button className="btn btn-secondary" onClick={() => setReschBkg(null)}>Cancel</button>
-          </div>
-        </Modal>
-      )}
+      {reschBkg && (() => {
+        const normCurrDate = reschBkg.scheduled_date ? reschBkg.scheduled_date.split('T')[0] : ''
+        const normCurrSlot = (!reschBkg.scheduled_slot || reschBkg.scheduled_slot === '—') ? '' : reschBkg.scheduled_slot
+        const totalOnDate  = Object.values(reschSlotCounts).reduce((a: number, b: number) => a + b, 0)
+        const selCount     = reschSlot ? (reschSlotCounts[reschSlot] || 0) : 0
+        const hasChange    = reschDate !== normCurrDate || reschSlot !== normCurrSlot
+        return (
+          <Modal title="Reschedule Booking" onClose={() => { setReschBkg(null); setReschSlotCounts({}) }} size="md">
+            {/* Booking info banner */}
+            <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
+              <b>{reschBkg.booking_number}</b> · {reschBkg.customer_name}
+              <div style={{ fontSize: 12, color: '#7C3AED', marginTop: 2 }}>
+                Currently: {normCurrDate ? fmtDate(normCurrDate) : '—'}{normCurrSlot ? ` · ${SLOTS.find(s => s.value === normCurrSlot)?.label || normCurrSlot}` : ''}
+              </div>
+            </div>
+
+            {/* Date picker */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={lbl}>New Date *</label>
+              <input className="input" type="date" value={reschDate}
+                onChange={e => {
+                  setReschDate(e.target.value)
+                  setReschSlot('')
+                  setReschSlotCounts({})
+                  if (e.target.value) fetchReschSlotCounts(e.target.value)
+                }}
+                min={todayIST()}
+              />
+              {reschDate && (
+                <div style={{ fontSize: 11, color: '#64748B', marginTop: 4 }}>
+                  {reschLoadingSlots ? '⏳ Loading availability…' : totalOnDate > 0 ? `${totalOnDate} active booking${totalOnDate !== 1 ? 's' : ''} on this day` : 'No bookings yet on this day'}
+                </div>
+              )}
+            </div>
+
+            {/* Slot grid */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={lbl}>New Time Slot *</label>
+                {reschDate && !reschLoadingSlots && (
+                  <span style={{ fontSize: 10, color: '#94A3B8' }}>Cap: {RESCH_HARD_CAP}/slot · Busy ≥{RESCH_SOFT_CAP}</span>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {SLOTS.map(s => {
+                  const count  = reschSlotCounts[s.value] || 0
+                  const isFull = count >= RESCH_HARD_CAP
+                  const isBusy = count >= RESCH_SOFT_CAP && !isFull
+                  const isSel  = reschSlot === s.value
+                  const isCurr = reschDate === normCurrDate && s.value === normCurrSlot
+                  const borderColor = isSel ? '#7C3AED' : isFull ? '#FCA5A5' : isBusy ? '#FCD34D' : '#E2E8F0'
+                  const bg          = isSel ? '#F5F3FF' : isFull ? '#FEF2F2' : isBusy ? '#FFFBEB' : '#FAFAFA'
+                  const barPct      = Math.min(Math.round((count / RESCH_HARD_CAP) * 100), 100)
+                  const barColor    = isFull ? '#EF4444' : isBusy ? '#F59E0B' : '#10B981'
+                  return (
+                    <div key={s.value}
+                      onClick={() => { if (!isFull && reschDate) { setReschSlot(s.value); fetchReschSlotDetail(reschDate, s.value) } }}
+                      style={{
+                        border: `2px solid ${borderColor}`, borderRadius: 10, padding: '10px 12px',
+                        background: bg, cursor: isFull || !reschDate ? 'not-allowed' : 'pointer',
+                        opacity: !reschDate ? 0.45 : 1, transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600, fontSize: 12, color: isSel ? '#7C3AED' : isFull ? '#DC2626' : isBusy ? '#92400E' : '#0F172A' }}>
+                          {s.label}
+                        </span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {isCurr && <span style={{ fontSize: 9, fontWeight: 700, background: '#DBEAFE', color: '#1D4ED8', borderRadius: 4, padding: '1px 5px' }}>CURRENT</span>}
+                          {isFull && <span style={{ fontSize: 9, fontWeight: 700, background: '#FEE2E2', color: '#DC2626', borderRadius: 4, padding: '1px 5px' }}>FULL</span>}
+                          {isBusy && !isFull && <span style={{ fontSize: 9, fontWeight: 700, background: '#FEF3C7', color: '#92400E', borderRadius: 4, padding: '1px 5px' }}>BUSY</span>}
+                        </div>
+                      </div>
+                      {reschDate && (
+                        reschLoadingSlots
+                          ? <div style={{ height: 6, borderRadius: 3, background: '#E5E7EB' }} />
+                          : <>
+                            <div style={{ height: 6, borderRadius: 3, background: '#E5E7EB', overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${barPct}%`, background: barColor, borderRadius: 3, transition: 'width 0.3s' }} />
+                            </div>
+                            <div style={{ fontSize: 10, color: isFull ? '#DC2626' : isBusy ? '#92400E' : '#059669', fontWeight: 600, marginTop: 2 }}>
+                              {isFull ? `Full (${RESCH_HARD_CAP}/${RESCH_HARD_CAP})` : count === 0 ? 'Available' : `${count}/${RESCH_HARD_CAP} booked`}
+                            </div>
+                          </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              {!reschDate && (
+                <div style={{ textAlign: 'center', fontSize: 12, color: '#94A3B8', marginTop: 8 }}>Select a date above to see slot availability</div>
+              )}
+            </div>
+
+            {/* Selected slot summary */}
+            {reschSlot && reschDate && !reschLoadingSlots && (
+              <div style={{
+                borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, border: '1px solid',
+                background: selCount >= RESCH_HARD_CAP ? '#FEF2F2' : selCount >= RESCH_SOFT_CAP ? '#FFFBEB' : '#F0FDF4',
+                borderColor: selCount >= RESCH_HARD_CAP ? '#FECACA' : selCount >= RESCH_SOFT_CAP ? '#FDE68A' : '#86EFAC',
+                color: selCount >= RESCH_HARD_CAP ? '#DC2626' : selCount >= RESCH_SOFT_CAP ? '#92400E' : '#059669',
+                fontWeight: 600,
+              }}>
+                {selCount >= RESCH_HARD_CAP ? `⛔ Slot full — ${selCount}/${RESCH_HARD_CAP} bookings`
+                  : selCount >= RESCH_SOFT_CAP ? `⚠️ Slot busy — ${selCount}/${RESCH_HARD_CAP} bookings`
+                  : `✅ Available — ${selCount}/${RESCH_HARD_CAP} bookings`}
+                <span style={{ fontWeight: 400, color: '#64748B', marginLeft: 8 }}>
+                  {SLOTS.find(s => s.value === reschSlot)?.label}
+                </span>
+              </div>
+            )}
+
+            {/* No-change warning */}
+            {!hasChange && reschDate && reschSlot && (
+              <div style={{ fontSize: 12, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '8px 12px', marginBottom: 14 }}>
+                ⚠️ Date and slot are same as current schedule. Please change at least one.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-primary" onClick={doReschedule}
+                disabled={!reschDate || !reschSlot || !hasChange || (reschSlotCounts[reschSlot] || 0) >= RESCH_HARD_CAP || reschSaving}>
+                {reschSaving ? <Spinner size="sm" /> : 'Reschedule'}
+              </button>
+              <button className="btn btn-secondary" onClick={() => { setReschBkg(null); setReschSlotCounts({}) }}>Cancel</button>
+            </div>
+          </Modal>
+        )
+      })()}
 
       {/* ══════════════════════════════════════════════════════════════
           CREATE BOOKING MODAL (reuses advanced BookingModal)

@@ -89,6 +89,7 @@ export const bookingsAPI = {
   visitingCharge:       (id: string, amount: number, notes?: string) =>
                           api.post(`/bookings/${id}/visiting-charge`, { amount, notes }),
   slotSummary:          (date: string)                   => api.get('/bookings/slot-summary', { params: { date } }),
+  slotDetail:           (date: string, slot: string)       => api.get('/bookings/slot-detail', { params: { date, slot } }),
 }
 
 // ── Customers ──────────────────────────────────────────────────
