@@ -126,7 +126,7 @@ export default function Technicians() {
   // Edit modal state
   const [showEdit, setShowEdit]         = useState(false)
   const [editForm, setEditForm]         = useState<any>({})
-  const [editTab, setEditTab]           = useState<'info'|'location'|'documents'|'availability'|'skills'|'commissions'|'payout'>('info')
+  const [editTab, setEditTab]           = useState<'info'|'location'|'documents'|'availability'|'commissions'|'payout'>('info')
   const [editSaving, setEditSaving]     = useState(false)
   const [editErr, setEditErr]           = useState('')
   const [editAreas, setEditAreas]       = useState<Area[]>([])
@@ -263,10 +263,6 @@ export default function Technicians() {
       if (techId && wizardSkills.length) {
         await Promise.allSettled(wizardSkills.map(s => techniciansAPI.addSkill(techId, s)))
       }
-      // Save availability schedule
-      if (techId) {
-        await techniciansAPI.setAvailability(techId, wizardAvail).catch(() => {})
-      }
       setShowCreate(false)
       resetWizard()
       fetchTechs()
@@ -345,8 +341,6 @@ export default function Technicians() {
     setEditErr(''); setEditTab('info')
     // Load existing skills for this tech in edit modal
     try { const r = await techniciansAPI.skills(t.id); setEditSkills(r.data.data || []) } catch { setEditSkills([]) }
-    // Load availability so the Availability tab in Edit has data even if View was never opened
-    try { const r = await techniciansAPI.availability(t.id); setAvailability(r.data.data || []) } catch {}
     setEditAddSkillMode(false); setEditSkillSearch(''); setEditNewSkill({ service_id: '', proficiency: 'INTERMEDIATE' })
     setShowEdit(true)
   }
@@ -369,6 +363,9 @@ export default function Technicians() {
         status: editForm.status,
         auto_assign_eligible: editForm.auto_assign_eligible !== undefined ? editForm.auto_assign_eligible : true,
       })
+      if (editForm.profile_image) {
+        await techniciansAPI.updateProfileImage(editTechId, editForm.profile_image)
+      }
       setShowEdit(false)
       fetchTechs()
       toast.success('Technician Updated', 'Profile changes saved successfully.')
@@ -377,13 +374,7 @@ export default function Technicians() {
         try { const r = await techniciansAPI.get(editTechId); setSelected(r.data.data) } catch {}
       }
     } catch (e: any) {
-      // Pydantic validation errors return detail as an array; flatten to readable string
-      const detail = e.response?.data?.detail
-      if (Array.isArray(detail)) {
-        setEditErr(detail.map((d: any) => d.msg || JSON.stringify(d)).join('; '))
-      } else {
-        setEditErr(typeof detail === 'string' ? detail : 'Save failed — please check your inputs and try again.')
-      }
+      setEditErr(e.response?.data?.detail || 'Save failed')
     } finally { setEditSaving(false) }
   }
 
@@ -405,16 +396,11 @@ export default function Technicians() {
 
   const saveAvailabilityEdit = async () => {
     if (!editTechId) return
-    setEditSaving(true); setEditErr('')
+    setEditSaving(true)
     try {
-      // Strip `id` fields — backend creates new records; sending id causes confusion
-      const slots = availability.map(({ id: _id, ...rest }: any) => rest)
-      await techniciansAPI.setAvailability(editTechId, slots)
+      await techniciansAPI.setAvailability(editTechId, availability)
       toast.success('Availability Saved', 'Weekly schedule updated successfully.')
-    } catch (e: any) {
-      const detail = e.response?.data?.detail
-      setEditErr(typeof detail === 'string' ? detail : 'Save failed — please try again.')
-    }
+    } catch { setEditErr('Save failed') }
     finally { setEditSaving(false) }
   }
 
@@ -868,67 +854,19 @@ export default function Technicians() {
           {detailTab === 'performance' && (
             <div>
               {!performance ? (
-                performanceErr ? (
-                  <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12,
-                    padding: 32, textAlign: 'center', color: '#DC2626' }}>
-                    <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
-                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Performance data unavailable</div>
-                    <div style={{ fontSize: 13, color: '#92400E' }}>Could not load performance metrics. Please try again.</div>
-                    <button className="btn btn-secondary btn-sm" style={{ marginTop: 12 }}
-                      onClick={async () => {
-                        setPerformance(null); setPerformanceErr(false)
-                        try { const r = await techniciansAPI.performance(selected.id); setPerformance(r.data.data || {}) }
-                        catch { setPerformance({}); setPerformanceErr(true) }
-                      }}>
-                      🔄 Retry
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ textAlign: 'center', padding: 24 }}><Spinner /></div>
-                )
-              ) : performanceErr ? (
-                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12,
-                  padding: 32, textAlign: 'center', color: '#DC2626' }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
-                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Performance data unavailable</div>
-                  <div style={{ fontSize: 13, color: '#92400E' }}>Could not load performance metrics.</div>
-                  <button className="btn btn-secondary btn-sm" style={{ marginTop: 12 }}
-                    onClick={async () => {
-                      setPerformance(null); setPerformanceErr(false)
-                      try { const r = await techniciansAPI.performance(selected.id); setPerformance(r.data.data || {}) }
-                      catch { setPerformance({}); setPerformanceErr(true) }
-                    }}>
-                    🔄 Retry
-                  </button>
-                </div>
+                <div style={{ textAlign: 'center', padding: 24 }}><Spinner /></div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
                   {[
-                    ['Total Assigned', performance.total_assigned ?? 0, '#1B4FD8'],
-                    ['Completed', performance.completed ?? 0, '#059669'],
-                    ['Cancelled / Other', (performance.total_assigned ?? 0) - (performance.completed ?? 0), '#DC2626'],
+                    ['Total Assigned', performance.total_assigned, '#1B4FD8'],
+                    ['Completed', performance.completed, '#059669'],
+                    ['Completion Rate', `${performance.completion_rate}%`, performance.completion_rate >= 80 ? '#059669' : '#D97706'],
                   ].map(([label, val, color]) => (
                     <div key={label as string} style={{ background: '#F8FAFC', borderRadius: 12, padding: '20px 16px', textAlign: 'center', border: '1px solid #E2E8F0' }}>
                       <div style={{ fontSize: 28, fontWeight: 800, color: color as string }}>{val}</div>
                       <div style={{ fontSize: 12, color: '#64748B', marginTop: 4, fontWeight: 600 }}>{label}</div>
                     </div>
                   ))}
-                  {/* Completion rate bar */}
-                  <div style={{ gridColumn: '1/-1', background: '#F8FAFC', borderRadius: 12, padding: '14px 16px', border: '1px solid #E2E8F0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Completion Rate</span>
-                      <span style={{ fontSize: 18, fontWeight: 800,
-                        color: (performance.completion_rate ?? 0) >= 80 ? '#059669' : (performance.completion_rate ?? 0) >= 50 ? '#D97706' : '#DC2626' }}>
-                        {performance.completion_rate ?? 0}%
-                      </span>
-                    </div>
-                    <div style={{ background: '#E2E8F0', borderRadius: 99, height: 10, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', borderRadius: 99, transition: 'width 0.5s',
-                        width: `${Math.min(100, performance.completion_rate ?? 0)}%`,
-                        background: (performance.completion_rate ?? 0) >= 80 ? '#059669' : (performance.completion_rate ?? 0) >= 50 ? '#D97706' : '#DC2626'
-                      }} />
-                    </div>
-                  </div>
                   <div style={{ gridColumn: '1/-1', background: '#F0FDF4', borderRadius: 12, padding: 16, border: '1px solid #BBF7D0' }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 4 }}>⭐ Customer Rating</div>
                     <div style={{ fontSize: 24, fontWeight: 800, color: '#166534' }}>
@@ -939,26 +877,16 @@ export default function Technicians() {
                   </div>
                 </div>
               )}
+            )}
             </div>
           )}
 
           {/* Tab: Availability */}
           {detailTab === 'availability' && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div style={{ fontSize: 13, color: '#64748B' }}>
-                  Weekly availability schedule (read-only). Use <strong>✏️ Edit</strong> to modify.
-                </div>
-                <button className="btn btn-secondary btn-sm" onClick={() => openEdit(selected!)}>
-                  ✏️ Edit Schedule
-                </button>
+              <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>
+                Weekly availability schedule. Edit via backend API.
               </div>
-              {availability.length === 0 && (
-                <div style={{ background: '#FEF9C3', border: '1px solid #FDE68A', borderRadius: 8,
-                  padding: '10px 14px', fontSize: 13, color: '#92400E', marginBottom: 12 }}>
-                  ⚠️ No availability schedule set. Click <strong>Edit Schedule</strong> to configure working hours.
-                </div>
-              )}
               {DAYS.map((day, i) => {
                 const slot = availability.find((a: any) => a.day_of_week === i) || { is_available: i < 5, start_time: '09:00:00', end_time: '18:00:00' }
                 return (
@@ -1052,16 +980,7 @@ export default function Technicians() {
           {/* ── Info tab ── */}
           {editTab === 'info' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              {/* Mobile — read-only, cannot be changed via this form */}
-              <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Mobile</label>
-                <input className="input" type="tel" value={editForm.mobile ?? ''} readOnly
-                  style={{ background: '#F1F5F9', color: '#64748B', cursor: 'not-allowed' }} />
-                <span style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, display: 'block' }}>
-                  Mobile number cannot be changed after registration
-                </span>
-              </div>
-              {[['Full Name *','name','text'],['Email','email','email'],
+              {[['Full Name *','name','text'],['Mobile','mobile','tel'],['Email','email','email'],
                 ['Alternate Mobile','alternate_mobile','tel'],['Date of Birth','dob','date'],
                 ['Experience (Years)','experience_years','number'],
                 ['Emergency Contact Name','emergency_contact_name','text'],
@@ -2066,113 +1985,6 @@ function ReviewSection({ title, items }: { title: string; items: [string, string
           <span style={{ fontWeight: 600, color: '#0F172A', maxWidth: 200, textAlign: 'right', wordBreak: 'break-word' }}>{val}</span>
         </div>
       ))}
-    </div>
-  )
-}
-
-// ─── WizardSkillRow — searchable service picker for wizard Step 3 ─────────────
-function WizardSkillRow({
-  index, skill, allServices, onUpdate, onRemove,
-}: {
-  index: number
-  skill: { service_id: string; proficiency: string }
-  allServices: Array<{ id: string; name: string; category_name?: string }>
-  onUpdate: (i: number, field: string, val: string) => void
-  onRemove: (i: number) => void
-}) {
-  const [search, setSearch] = useState('')
-  const [open, setOpen] = useState(false)
-
-  const picked = allServices.find(s => s.id === skill.service_id)
-  const PROFICIENCY = ['BEGINNER', 'INTERMEDIATE', 'EXPERT']
-
-  const filtered = allServices.filter(s =>
-    !skill.service_id &&
-    (search.trim() === '' ||
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      (s.category_name || '').toLowerCase().includes(search.toLowerCase()))
-  )
-  const grouped = filtered.reduce<Record<string, typeof allServices>>((acc, s) => {
-    const cat = s.category_name || 'Other'
-    if (!acc[cat]) acc[cat] = []
-    acc[cat].push(s)
-    return acc
-  }, {})
-
-  return (
-    <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: 14, position: 'relative' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>Skill #{index + 1}</span>
-        <button onClick={() => onRemove(index)}
-          style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 16, padding: '0 4px' }}>✕</button>
-      </div>
-
-      {/* Proficiency selector */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-        {PROFICIENCY.map(p => {
-          const c = p === 'EXPERT' ? '#059669' : p === 'INTERMEDIATE' ? '#1B4FD8' : '#D97706'
-          const sel = skill.proficiency === p
-          return (
-            <button key={p} onClick={() => onUpdate(index, 'proficiency', p)}
-              style={{ padding: '4px 12px', borderRadius: 20, border: `2px solid ${sel ? c : '#E2E8F0'}`,
-                background: sel ? c + '15' : 'white', color: sel ? c : '#64748B',
-                fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-              {p}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Service picker */}
-      {picked ? (
-        <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8,
-          padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#1B4FD8' }}>{picked.name}</span>
-            {picked.category_name && (
-              <span style={{ fontSize: 11, color: '#64748B', marginLeft: 8 }}>({picked.category_name})</span>
-            )}
-          </div>
-          <button onClick={() => { onUpdate(index, 'service_id', ''); setSearch(''); setOpen(false) }}
-            style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: 14 }}>✕</button>
-        </div>
-      ) : (
-        <div style={{ position: 'relative' }}>
-          <input className="input" placeholder="Search service name or category…"
-            value={search}
-            onChange={e => { setSearch(e.target.value); setOpen(true) }}
-            onFocus={() => setOpen(true)}
-            style={{ marginBottom: 0 }} />
-          {open && search.trim() !== '' && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
-              maxHeight: 220, overflowY: 'auto', border: '1px solid #E2E8F0',
-              borderRadius: 8, background: 'white', boxShadow: '0 4px 16px rgba(0,0,0,0.10)', marginTop: 2 }}>
-              {Object.keys(grouped).length === 0 ? (
-                <div style={{ padding: '10px 14px', fontSize: 13, color: '#94A3B8' }}>No matching services</div>
-              ) : Object.entries(grouped).map(([cat, svcs]) => (
-                <div key={cat}>
-                  <div style={{ padding: '5px 14px', fontSize: 10, fontWeight: 700, color: '#94A3B8',
-                    textTransform: 'uppercase', letterSpacing: '0.06em', background: '#F8FAFC',
-                    borderBottom: '1px solid #F1F5F9', position: 'sticky', top: 0 }}>
-                    {cat}
-                  </div>
-                  {svcs.map(s => (
-                    <button key={s.id}
-                      onClick={() => { onUpdate(index, 'service_id', s.id); setSearch(''); setOpen(false) }}
-                      style={{ width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none',
-                        background: 'none', cursor: 'pointer', fontSize: 13, color: '#0F172A',
-                        borderBottom: '1px solid #F8FAFC' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#EFF6FF')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-                      {s.name}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }
