@@ -88,6 +88,7 @@ export const bookingsAPI = {
                           api.post(`/bookings/${id}/reject-cancellation`, { reason: reason || 'Rejected by admin' }),
   visitingCharge:       (id: string, amount: number, notes?: string) =>
                           api.post(`/bookings/${id}/visiting-charge`, { amount, notes }),
+  slotSummary:          (date: string)                   => api.get('/bookings/slot-summary', { params: { date } }),
 }
 
 // ── Customers ──────────────────────────────────────────────────

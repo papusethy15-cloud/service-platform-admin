@@ -75,6 +75,7 @@ const nav: NavItem[] = [
   { kind: 'link', to: '/reports',    icon: '📈', label: 'Reports' },
   { kind: 'link', to: '/gst-report', icon: '🧾', label: 'GST Reports' },
   { kind: 'link', to: '/audit',      icon: '📜', label: 'Audit Logs' },
+  { kind: 'link', to: '/backend-logs', icon: '🖥️', label: 'Backend Logs' },
 
   // ── System ────────────────────────────────────────────────────────────────
   { kind: 'section', label: 'System' },

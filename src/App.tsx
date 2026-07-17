@@ -31,6 +31,7 @@ import Warranty       from '@/pages/Warranty'
 import Notifications  from '@/pages/Notifications'
 import Reports        from '@/pages/Reports'
 import Audit          from '@/pages/Audit'
+import BackendLogs    from '@/pages/BackendLogs'
 import Users          from '@/pages/Users'
 import Settings       from '@/pages/Settings'
 import CallbackRequests from '@/pages/CallbackRequests'
@@ -82,6 +83,7 @@ export default function App() {
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/reports"      element={<Reports />} />
                 <Route path="/audit"        element={<Audit />} />
+                <Route path="/backend-logs" element={<BackendLogs />} />
                 <Route path="/users"        element={<Users />} />
                 <Route path="/settings"     element={<Settings />} />
                 <Route path="/callback-requests" element={<CallbackRequests />} />
