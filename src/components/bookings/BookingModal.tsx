@@ -104,6 +104,16 @@ export default function BookingModal({
   const [mobileErr, setMobileErr] = useState('')
   const [searchedMobile, setSearchedMobile] = useState('')
 
+  // Step 1b — inline registration
+  const [regForm, setRegForm] = useState({ name: '', email: '', alternate_mobile: '', notes: '' })
+  const [regSaving, setRegSaving] = useState(false)
+  const [regErr, setRegErr] = useState('')
+  // Step 1c — inline address after registration
+  const [showRegAddr, setShowRegAddr] = useState(false)
+  const [regAddrForm, setRegAddrForm] = useState({ label: 'Home', address_line1: '', address_line2: '', city: '', state: '', pincode: '' })
+  const [regAddrSaving, setRegAddrSaving] = useState(false)
+  const [regAddrErr, setRegAddrErr] = useState('')
+
   // Customer
   const [customer,    setCustomer]    = useState<any>(initCustomer)
   const [addresses,   setAddresses]   = useState<any[]>(initAddresses)
@@ -221,6 +231,44 @@ export default function BookingModal({
   const selAppl        = appliances.find((a: any) => a.id === form.appliance_id)
 
   // ── Mobile lookup ──
+  // ── Register new customer inline ──
+  const handleRegister = async () => {
+    if (!regForm.name.trim()) { setRegErr('Customer name is required'); return }
+    setRegSaving(true); setRegErr('')
+    try {
+      const payload: any = { name: regForm.name.trim(), mobile: searchedMobile }
+      if (regForm.email.trim())            payload.email = regForm.email.trim()
+      if (regForm.alternate_mobile.trim()) payload.alternate_mobile = regForm.alternate_mobile.trim()
+      if (regForm.notes.trim())            payload.notes = regForm.notes.trim()
+      const res = await customersAPI.create(payload)
+      const cust = res.data.data
+      setCustomer(cust)
+      setAddresses([])
+      setAppliances([])
+      setRecentBkgs([])
+      setShowRegAddr(true)  // show address form next
+    } catch (ex: any) {
+      const detail = ex.response?.data?.detail
+      setRegErr(Array.isArray(detail) ? detail.map((d: any) => d.msg || '').join('; ') : (detail || 'Failed to create customer'))
+    } finally { setRegSaving(false) }
+  }
+
+  const handleRegAddr = async () => {
+    if (!regAddrForm.address_line1.trim() || !regAddrForm.city.trim() || !regAddrForm.state.trim() || !regAddrForm.pincode.trim()) {
+      setRegAddrErr('Address line, city, state and pincode are required'); return
+    }
+    if (!customer) return
+    setRegAddrSaving(true); setRegAddrErr('')
+    try {
+      await customersAPI.addAddress(customer.id, { ...regAddrForm, is_default: true })
+      const aRes = await customersAPI.addresses(customer.id)
+      setAddresses(aRes.data.data || [])
+      setStep('book')
+    } catch (ex: any) {
+      setRegAddrErr(ex.response?.data?.detail || 'Failed to save address')
+    } finally { setRegAddrSaving(false) }
+  }
+
   const checkMobile = async () => {
     if (!mobile || mobile.length < 10) { setMobileErr('Enter a valid 10-digit mobile'); return }
     setChecking(true); setMobileErr(''); setSearchedMobile(mobile)
@@ -254,6 +302,10 @@ export default function BookingModal({
     setStep('mobile'); setCustomer(null)
     setAddresses([]); setAppliances([]); setRecentBkgs([])
     setCreated([]); setErr(''); setMobileErr(''); setSearchedMobile('')
+    setRegForm({ name: '', email: '', alternate_mobile: '', notes: '' })
+    setRegErr(''); setShowRegAddr(false)
+    setRegAddrForm({ label: 'Home', address_line1: '', address_line2: '', city: '', state: '', pincode: '' })
+    setRegAddrErr('')
   }
 
   const saveQuickAddress = async () => {
@@ -361,40 +413,135 @@ export default function BookingModal({
       )}
 
       {/* ══════════════════════════════════════════════════════
-          STEP 1b — Customer NOT FOUND
+          STEP 1b — Customer NOT FOUND → Register inline
       ══════════════════════════════════════════════════════ */}
-      {step === 'not_found' && (
+      {step === 'not_found' && !showRegAddr && !customer && (
         <div>
-          <div style={{ background: '#FEF2F2', border: '2px solid #FECACA', borderRadius: 12, padding: '24px 20px', textAlign: 'center', marginBottom: 20 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
-            <div style={{ fontWeight: 800, fontSize: 18, color: '#DC2626', marginBottom: 8 }}>
-              Customer Not Found
+          {/* Header */}
+          <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '14px 16px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 28 }}>👤</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#1E40AF' }}>New Customer Registration</div>
+              <div style={{ fontSize: 13, color: '#3B82F6' }}>
+                No account found for <b style={{ fontFamily: 'monospace', letterSpacing: 1 }}>{searchedMobile}</b>. Register below to continue.
+              </div>
             </div>
-            <div style={{ fontSize: 14, color: '#7F1D1D', marginBottom: 4 }}>
-              No customer registered with mobile
+          </div>
+
+          {/* Registration form */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={lbl}>Full Name *</label>
+            <input className="input" placeholder="Customer full name" autoFocus
+              value={regForm.name} onChange={e => setRegForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={lbl}>Email <span style={{ fontWeight: 400, color: '#94A3B8' }}>(optional)</span></label>
+            <input className="input" type="email" placeholder="customer@email.com"
+              value={regForm.email} onChange={e => setRegForm(f => ({ ...f, email: e.target.value }))} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={lbl}>Alt. Mobile <span style={{ fontWeight: 400, color: '#94A3B8' }}>(optional)</span></label>
+              <input className="input" type="tel" maxLength={10} placeholder="Alternate number"
+                value={regForm.alternate_mobile} onChange={e => setRegForm(f => ({ ...f, alternate_mobile: e.target.value.replace(/\D/g, '') }))} />
             </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#DC2626', fontFamily: 'monospace', marginBottom: 16, letterSpacing: 2 }}>
-              {searchedMobile}
+            <div>
+              <label style={lbl}>Mobile (read-only)</label>
+              <input className="input" value={searchedMobile} readOnly style={{ background: '#F8FAFC', color: '#64748B' }} />
             </div>
-            <div style={{ fontSize: 13, color: '#92400E', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: '10px 14px', marginBottom: 20, textAlign: 'left' }}>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>⚠ Booking cannot be created without a registered customer.</div>
-              Please register this customer first from the <strong>Customers</strong> page, then come back to create the booking.
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={lbl}>Notes <span style={{ fontWeight: 400, color: '#94A3B8' }}>(optional)</span></label>
+            <input className="input" placeholder="Internal notes"
+              value={regForm.notes} onChange={e => setRegForm(f => ({ ...f, notes: e.target.value }))} />
+          </div>
+
+          {regErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 12 }}>{regErr}</div>}
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-primary" onClick={handleRegister} disabled={regSaving} style={{ background: '#16A34A' }}>
+              {regSaving ? <Spinner size="sm" /> : '✓ Register & Continue →'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => { setStep('mobile'); setMobile(''); setSearchedMobile(''); setRegForm({ name: '', email: '', alternate_mobile: '', notes: '' }); setRegErr('') }}>
+              ← Back
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          STEP 1c — Registered; now add first address
+      ══════════════════════════════════════════════════════ */}
+      {step === 'not_found' && showRegAddr && customer && (
+        <div>
+          <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 10, padding: '12px 16px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 24 }}>✅</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#166534' }}>Customer Registered — {customer.name}</div>
+              <div style={{ fontSize: 12, color: '#15803D' }}>📱 {customer.mobile} · Code: {customer.customer_code}</div>
             </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button
-                className="btn btn-primary"
-                style={{ background: '#16A34A' }}
-                onClick={() => {
-                  onClose()
-                  window.location.href = `/customers?register=${searchedMobile}`
-                }}
-              >
-                👤 Go to Customers → Register Now
-              </button>
-              <button className="btn btn-secondary" onClick={() => { setStep('mobile'); setMobile(''); setSearchedMobile('') }}>
-                ← Try Another Number
-              </button>
+          </div>
+
+          <div style={{ fontWeight: 700, fontSize: 14, color: '#374151', marginBottom: 14 }}>Add Service Address</div>
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={lbl}>Address Line 1 *</label>
+            <input className="input" placeholder="Flat/House no, Street" autoFocus
+              value={regAddrForm.address_line1} onChange={e => setRegAddrForm(f => ({ ...f, address_line1: e.target.value }))} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={lbl}>Address Line 2</label>
+            <input className="input" placeholder="Landmark, Area"
+              value={regAddrForm.address_line2} onChange={e => setRegAddrForm(f => ({ ...f, address_line2: e.target.value }))} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={lbl}>City *</label>
+              {cities.length > 0 ? (
+                <select className="input" value={regAddrForm.city} onChange={e => {
+                  const city = cities.find((c: any) => c.name === e.target.value)
+                  setRegAddrForm(f => ({ ...f, city: e.target.value, state: city?.state ?? f.state }))
+                }}>
+                  <option value="">Select city</option>
+                  {cities.map((c: any) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              ) : (
+                <input className="input" placeholder="City"
+                  value={regAddrForm.city} onChange={e => setRegAddrForm(f => ({ ...f, city: e.target.value }))} />
+              )}
             </div>
+            <div>
+              <label style={lbl}>State *</label>
+              <input className="input" placeholder="State"
+                value={regAddrForm.state} onChange={e => setRegAddrForm(f => ({ ...f, state: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={lbl}>Pincode *</label>
+            <input className="input" placeholder="6-digit pincode" maxLength={6}
+              value={regAddrForm.pincode} onChange={e => setRegAddrForm(f => ({ ...f, pincode: e.target.value.replace(/\D/g, '') }))} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={lbl}>Label</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {['Home', 'Work', 'Other'].map(l => (
+                <button key={l} onClick={() => setRegAddrForm(f => ({ ...f, label: l }))}
+                  style={{ padding: '5px 14px', borderRadius: 6, border: '1px solid', cursor: 'pointer',
+                    borderColor: regAddrForm.label === l ? '#1B4FD8' : '#E2E8F0',
+                    background: regAddrForm.label === l ? '#EFF6FF' : 'white',
+                    color: regAddrForm.label === l ? '#1B4FD8' : '#64748B', fontSize: 13, fontWeight: 600 }}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {regAddrErr && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px', borderRadius: 6, fontSize: 13, marginBottom: 12 }}>{regAddrErr}</div>}
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-primary" onClick={handleRegAddr} disabled={regAddrSaving}>
+              {regAddrSaving ? <Spinner size="sm" /> : 'Save Address & Book →'}
+            </button>
           </div>
         </div>
       )}

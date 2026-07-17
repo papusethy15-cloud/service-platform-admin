@@ -15,7 +15,7 @@
  */
 import { useEffect, useState, useCallback } from 'react'
 import {
-  customersAPI, bookingsAPI, domainsAPI, appliancesAPI,
+  api, customersAPI, bookingsAPI, domainsAPI, appliancesAPI,
 } from '@/services/api'
 import PageHeader from '@/components/layout/PageHeader'
 import StatusBadge from '@/components/ui/StatusBadge'
@@ -77,6 +77,14 @@ function AddressModal({ customerId, address, onClose, onSaved }: any) {
   const [err, setErr] = useState('')
   const [waUrl, setWaUrl] = useState('')
   const [waErr, setWaErr] = useState('')
+  const [cities, setCities] = useState<any[]>([])
+
+  useEffect(() => {
+    api.get('/cities?limit=100').then((r: any) => {
+      const items = r.data?.data?.items ?? r.data?.data ?? []
+      setCities(Array.isArray(items) ? items : [])
+    }).catch(() => {})
+  }, [])
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }))
 
@@ -117,7 +125,29 @@ function AddressModal({ customerId, address, onClose, onSaved }: any) {
             onChange={e => set('label', e.target.value)} />
         </div>
       </div>
-      {[['Address Line 1 *', 'address_line1', 'Flat/House no, Street'], ['Address Line 2', 'address_line2', 'Landmark, Area'], ['City *', 'city', 'City'], ['State *', 'state', 'State'], ['Pincode *', 'pincode', '6-digit pincode']].map(([l, k, ph]) => (
+      {[['Address Line 1 *', 'address_line1', 'Flat/House no, Street'], ['Address Line 2', 'address_line2', 'Landmark, Area']].map(([l, k, ph]) => (
+        <div key={k} style={{ marginBottom: 12 }}>
+          <label style={lbl}>{l}</label>
+          <input className="input" placeholder={ph} value={(form as any)[k] || ''}
+            onChange={e => set(k, e.target.value)} />
+        </div>
+      ))}
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>City *</label>
+        {cities.length > 0 ? (
+          <select className="input" value={form.city || ''} onChange={e => {
+            const city = cities.find((c: any) => c.name === e.target.value)
+            set('city', e.target.value)
+            if (city?.state) set('state', city.state)
+          }}>
+            <option value="">Select serviceable city</option>
+            {cities.map((c: any) => <option key={c.id} value={c.name}>{c.name}</option>)}
+          </select>
+        ) : (
+          <input className="input" placeholder="City" value={form.city || ''} onChange={e => set('city', e.target.value)} />
+        )}
+      </div>
+      {[['State *', 'state', 'State'], ['Pincode *', 'pincode', '6-digit pincode']].map(([l, k, ph]) => (
         <div key={k} style={{ marginBottom: 12 }}>
           <label style={lbl}>{l}</label>
           <input className="input" placeholder={ph} value={(form as any)[k] || ''}
