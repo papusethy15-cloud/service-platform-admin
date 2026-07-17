@@ -112,6 +112,13 @@ export default function Technicians() {
     profile_image: '',
     // ID proof doc URL
     id_proof: '',
+    // Payout method (optional at create time)
+    payout_method: 'upi',
+    payout_upi_id: '',
+    payout_bank_account: '',
+    payout_bank_ifsc: '',
+    payout_bank_name: '',
+    payout_account_holder: '',
   })
   const [wizardSkills, setWizardSkills] = useState<Array<{ service_id: string; proficiency: string }>>([])
   const [wizardAvail, setWizardAvail]   = useState(defaultAvailability())
@@ -224,6 +231,16 @@ export default function Technicians() {
         identity_number: form.identity_number || undefined,
         pincode: form.pincode || undefined,
         profile_image: form.profile_image || undefined,
+        // Payout method (optional)
+        ...(form.payout_method === 'upi' && form.payout_upi_id ? {
+          payout_upi_id: form.payout_upi_id || undefined,
+        } : {}),
+        ...(form.payout_method === 'bank' && form.payout_bank_account ? {
+          payout_bank_account: form.payout_bank_account || undefined,
+          payout_bank_ifsc: form.payout_bank_ifsc || undefined,
+          payout_bank_name: form.payout_bank_name || undefined,
+          payout_account_holder: form.payout_account_holder || undefined,
+        } : {}),
       }
       const res = await techniciansAPI.create(payload)
       const techId = res.data.data?.id
@@ -244,7 +261,9 @@ export default function Technicians() {
     setForm({ name:'', mobile:'', email:'', alternate_mobile:'', dob:'', gender:'',
       emergency_contact_name:'', emergency_contact_mobile:'', experience_years:0,
       identity_type:'', identity_number:'', city:'', city_id:'', area:'', area_id:'',
-      address:'', pincode:'', profile_image:'', id_proof:'' })
+      address:'', pincode:'', profile_image:'', id_proof:'',
+      payout_method:'upi', payout_upi_id:'', payout_bank_account:'',
+      payout_bank_ifsc:'', payout_bank_name:'', payout_account_holder:'' })
     setWizardSkills([]); setWizardAvail(defaultAvailability()); setAreas([])
   }
 
@@ -1621,6 +1640,21 @@ export default function Technicians() {
                   )}
                 </div>
               </div>
+
+              {/* Payout review */}
+              {(form.payout_upi_id || form.payout_bank_account) && (
+                <ReviewSection title="💳 Payout Method" items={
+                  form.payout_method === 'upi'
+                    ? [['Method', 'UPI'], ['UPI ID', form.payout_upi_id || '—']]
+                    : [
+                        ['Method', 'Bank Transfer'],
+                        ['Account Holder', form.payout_account_holder || '—'],
+                        ['Account No.', form.payout_bank_account || '—'],
+                        ['IFSC', form.payout_bank_ifsc || '—'],
+                        ['Bank', form.payout_bank_name || '—'],
+                      ]
+                } />
+              )}
 
               <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '12px 16px',
                 fontSize: 13, color: '#166534', marginBottom: 4 }}>
