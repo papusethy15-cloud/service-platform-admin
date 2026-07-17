@@ -10,6 +10,14 @@ interface Domain   { id: string; name: string }
 interface GroupRule { id?: string; service_id: string; service_name?: string; base_price?: number; domain_id: string|null; domain_name?: string; commission_type: string; rate: number }
 interface Group {
   id: string; name: string; description?: string; is_active: boolean
+  is_salary_group?: boolean
+  monthly_salary?: number
+  petrol_amount?: number
+  mobile_recharge?: number
+  bonus_amount?: number
+  hra_amount?: number
+  other_allowances?: number
+  salary_notes?: string
   technician_count: number; rules: GroupRule[]
 }
 interface Technician { id: string; name: string; mobile: string; technician_code?: string }
@@ -361,7 +369,7 @@ export default function CommissionGroups() {
   // Group modal
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing]     = useState<Group | null>(null)
-  const [form, setForm]           = useState({ name: '', description: '' })
+  const [form, setForm]           = useState({ name: '', description: '', is_salary_group: false, monthly_salary: 0, petrol_amount: 0, mobile_recharge: 0, bonus_amount: 0, hra_amount: 0, other_allowances: 0, salary_notes: '' })
   const [rules, setRules]         = useState<GroupRule[]>([])
   // Per-rule selected service objects (for displaying price preview)
   const [ruleServices, setRuleServices] = useState<(Service|null)[]>([])
@@ -412,7 +420,7 @@ export default function CommissionGroups() {
   // ── Open create ──────────────────────────────────────────────────────────────
   const openCreate = () => {
     setEditing(null)
-    setForm({ name: '', description: '' })
+    setForm({ name: '', description: '', is_salary_group: false, monthly_salary: 0, petrol_amount: 0, mobile_recharge: 0, bonus_amount: 0, hra_amount: 0, other_allowances: 0, salary_notes: '' })
     setRules([{ service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }])
     setRuleServices([null])
     setErr(''); setShowModal(true)
@@ -421,7 +429,7 @@ export default function CommissionGroups() {
   // ── Open edit ────────────────────────────────────────────────────────────────
   const openEdit = async (g: Group) => {
     setEditing(g)
-    setForm({ name: g.name, description: g.description || '' })
+    setForm({ name: g.name, description: g.description || '', is_salary_group: g.is_salary_group || false, monthly_salary: g.monthly_salary || 0, petrol_amount: g.petrol_amount || 0, mobile_recharge: g.mobile_recharge || 0, bonus_amount: g.bonus_amount || 0, hra_amount: g.hra_amount || 0, other_allowances: g.other_allowances || 0, salary_notes: g.salary_notes || '' })
     const baseRules = g.rules.length
       ? g.rules.map(r => ({ ...r }))
       : [{ service_id: '', domain_id: null, commission_type: 'PERCENTAGE', rate: 0 }]
@@ -436,7 +444,7 @@ export default function CommissionGroups() {
   const save = async () => {
     if (!form.name.trim()) { setErr('Group name is required'); return }
     const validRules = rules.filter(r => r.service_id)
-    if (validRules.length === 0) { setErr('At least one service rule with a selected service is required'); return }
+    if (!form.is_salary_group && validRules.length === 0) { setErr('At least one service rule with a selected service is required'); return }
     // Duplicate service check
     const svcIds = validRules.map(r => r.service_id)
     const dupId = svcIds.find((id, i) => svcIds.indexOf(id) !== i)
@@ -448,7 +456,21 @@ export default function CommissionGroups() {
     }
     setSaving(true); setErr('')
     try {
-      const payload = { name: form.name, description: form.description, rules: validRules }
+      const payload: any = {
+        name: form.name,
+        description: form.description,
+        is_salary_group: form.is_salary_group,
+        rules: form.is_salary_group ? [] : validRules,
+      }
+      if (form.is_salary_group) {
+        payload.monthly_salary   = Number(form.monthly_salary)   || 0
+        payload.petrol_amount    = Number(form.petrol_amount)    || 0
+        payload.mobile_recharge  = Number(form.mobile_recharge)  || 0
+        payload.bonus_amount     = Number(form.bonus_amount)     || 0
+        payload.hra_amount       = Number(form.hra_amount)       || 0
+        payload.other_allowances = Number(form.other_allowances) || 0
+        payload.salary_notes     = form.salary_notes || null
+      }
       if (editing) {
         await commissionsAPI.updateGroup(editing.id, payload)
       } else {
@@ -633,7 +655,15 @@ export default function CommissionGroups() {
               <div style={{ padding: '16px 18px', borderBottom: '1px solid #F1F5F9',
                 background: 'linear-gradient(135deg,#EFF6FF,#F8FAFC)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 16, color: '#0F172A' }}>💼 {g.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 16, color: '#0F172A', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {g.is_salary_group ? '💼🏦' : '💼'} {g.name}
+                    {g.is_salary_group && (
+                      <span style={{ fontSize: 10, background: '#FEF3C7', color: '#92400E', fontWeight: 700,
+                        padding: '2px 8px', borderRadius: 20, border: '1px solid #FCD34D', flexShrink: 0 }}>
+                        SALARY
+                      </span>
+                    )}
+                  </div>
                   {g.description && <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{g.description}</div>}
                 </div>
                 <span style={{ fontSize: 11, background: '#DCFCE7', color: '#166534', padding: '2px 8px',
@@ -643,7 +673,11 @@ export default function CommissionGroups() {
               </div>
 
               <div style={{ padding: '12px 18px' }}>
-                {g.rules.length === 0 ? (
+                {g.is_salary_group ? (
+                  <div style={{ fontSize: 12, color: '#92400E', background: '#FEF3C7', padding: '8px 12px', borderRadius: 8, border: '1px solid #FCD34D' }}>
+                    🏦 Salary Group — No service commission. Market purchase parts are reimbursed at settlement.
+                  </div>
+                ) : g.rules.length === 0 ? (
                   <div style={{ fontSize: 12, color: '#94A3B8' }}>No service rules defined</div>
                 ) : g.rules.slice(0, 4).map((r, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -656,7 +690,7 @@ export default function CommissionGroups() {
                     </span>
                   </div>
                 ))}
-                {g.rules.length > 4 && (
+                {!g.is_salary_group && g.rules.length > 4 && (
                   <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>+{g.rules.length - 4} more rules</div>
                 )}
               </div>
@@ -691,9 +725,110 @@ export default function CommissionGroups() {
               <input className="input" placeholder="Optional description"
                 value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
             </div>
+
+            {/* Salary Group Toggle */}
+            <div style={{ gridColumn: '1/-1' }}>
+              <div
+                onClick={() => setForm(f => ({ ...f, is_salary_group: !f.is_salary_group }))}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
+                  background: form.is_salary_group ? '#FFFBEB' : '#F8FAFC',
+                  border: `2px solid ${form.is_salary_group ? '#FCD34D' : '#E2E8F0'}`,
+                  borderRadius: 12, cursor: 'pointer', userSelect: 'none',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {/* Toggle switch */}
+                <div style={{
+                  width: 44, height: 24, borderRadius: 12, flexShrink: 0,
+                  background: form.is_salary_group ? '#F59E0B' : '#CBD5E1',
+                  position: 'relative', transition: 'background 0.2s',
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 3, left: form.is_salary_group ? 23 : 3,
+                    width: 18, height: 18, borderRadius: '50%', background: 'white',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.18)', transition: 'left 0.2s',
+                  }} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: '#0F172A' }}>
+                    🏦 Salary Group
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                    {form.is_salary_group
+                      ? '✅ ENABLED — Technicians in this group get a fixed monthly salary. No service/part commission rules apply. Only market purchase parts are reimbursed at settlement.'
+                      : 'Enable this if technicians are paid a fixed salary (not commission-based). Service and part commission rules will be hidden.'}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Service Rules */}
+          {/* Salary group info banner */}
+          {form.is_salary_group && (
+            <div style={{ background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#92400E' }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>🏦 Salary Group Rules:</div>
+              <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 2 }}>
+                <li>No service commission rules — technicians receive a fixed monthly salary</li>
+                <li>No spare part commission rules — office stock parts carry no commission</li>
+                <li>✅ If technician buys parts from market (MARKET PURCHASE), the purchase cost is reimbursed at settlement time</li>
+                <li>Settlement creates a PURCHASE_REIMBURSEMENT record for market parts only</li>
+                <li>My Commissions screen in the app shows only market part reimbursements</li>
+              </ul>
+            </div>
+          )}
+
+
+          {/* Salary Structure Fields */}
+          {form.is_salary_group && (
+            <div style={{ background: '#FAFAFA', border: '1px solid #E2E8F0', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: '#0F172A', marginBottom: 14 }}>💰 Salary Structure (Monthly)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <Label>Basic Monthly Salary (₹) *</Label>
+                  <input className="input" type="number" min="0" placeholder="e.g. 15000"
+                    value={form.monthly_salary || ''} onChange={e => setForm(f => ({ ...f, monthly_salary: Number(e.target.value) }))} />
+                </div>
+                <div>
+                  <Label>Petrol Allowance (₹)</Label>
+                  <input className="input" type="number" min="0" placeholder="0"
+                    value={form.petrol_amount || ''} onChange={e => setForm(f => ({ ...f, petrol_amount: Number(e.target.value) }))} />
+                </div>
+                <div>
+                  <Label>Mobile Recharge (₹)</Label>
+                  <input className="input" type="number" min="0" placeholder="0"
+                    value={form.mobile_recharge || ''} onChange={e => setForm(f => ({ ...f, mobile_recharge: Number(e.target.value) }))} />
+                </div>
+                <div>
+                  <Label>Bonus (₹)</Label>
+                  <input className="input" type="number" min="0" placeholder="0"
+                    value={form.bonus_amount || ''} onChange={e => setForm(f => ({ ...f, bonus_amount: Number(e.target.value) }))} />
+                </div>
+                <div>
+                  <Label>HRA (₹)</Label>
+                  <input className="input" type="number" min="0" placeholder="0"
+                    value={form.hra_amount || ''} onChange={e => setForm(f => ({ ...f, hra_amount: Number(e.target.value) }))} />
+                </div>
+                <div>
+                  <Label>Other Allowances (₹)</Label>
+                  <input className="input" type="number" min="0" placeholder="0"
+                    value={form.other_allowances || ''} onChange={e => setForm(f => ({ ...f, other_allowances: Number(e.target.value) }))} />
+                </div>
+                <div style={{ gridColumn: '1/-1' }}>
+                  <Label>Salary Notes</Label>
+                  <input className="input" placeholder="Optional notes about this salary structure"
+                    value={form.salary_notes} onChange={e => setForm(f => ({ ...f, salary_notes: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ marginTop: 12, padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, fontSize: 12, color: '#1D4ED8' }}>
+                <strong>Gross Monthly:</strong> ₹{((Number(form.monthly_salary)||0) + (Number(form.petrol_amount)||0) + (Number(form.mobile_recharge)||0) + (Number(form.bonus_amount)||0) + (Number(form.hra_amount)||0) + (Number(form.other_allowances)||0)).toLocaleString('en-IN')}
+                &nbsp;(Basic + Allowances)
+              </div>
+            </div>
+          )}
+
+          {/* Service Rules — hidden for salary groups */}
+          {!form.is_salary_group && <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', textTransform: 'uppercase',
             letterSpacing: '0.06em', marginBottom: 10, paddingBottom: 6, borderBottom: '2px solid #EFF6FF' }}>
             🔧 Commission Rules per Service
@@ -784,6 +919,7 @@ export default function CommissionGroups() {
           <button className="btn btn-secondary btn-sm" onClick={addRule} style={{ marginBottom: 20 }}>
             + Add Another Service Rule
           </button>
+          </div>}
 
           {err && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px 14px',
             borderRadius: 8, fontSize: 13, marginBottom: 16 }}>⚠️ {err}</div>}

@@ -49,6 +49,9 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
   }, [bookingId])
 
   const hasLineItems = (preview?.line_items || []).length > 0
+  const isSalaryGroup = preview?.is_salary_group === true
+  // For salary group: line_items only contain MARKET_PURCHASE reimbursements
+  const salaryHasMarketParts = isSalaryGroup && hasLineItems
 
   const handleSettle = async () => {
     setSaving(true); setSaveErr('')
@@ -144,6 +147,11 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
             <div style={{ fontSize: 11, color: '#64748B', marginBottom: 2 }}>💼 Commission Group</div>
             <div style={{ fontWeight: 700, color: preview.commission_group ? '#166534' : '#92400E' }}>
               {preview.commission_group?.name || '⚠ No group assigned — manual entry required'}
+              {isSalaryGroup && (
+                <span style={{ marginLeft: 8, fontSize: 10, background: '#FEF3C7', color: '#92400E', padding: '2px 7px', borderRadius: 4, fontWeight: 700, verticalAlign: 'middle' }}>
+                  💼 SALARY
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -157,8 +165,20 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
         </div>
       )}
 
-      {/* ── MANUAL MODE: no services/parts found ── */}
-      {preview && !previewLoading && !hasLineItems && (
+      {/* ── SALARY GROUP — No market parts: info banner, no commission to settle ── */}
+      {preview && !previewLoading && isSalaryGroup && !hasLineItems && (
+        <div style={{ marginBottom: 16, background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ fontWeight: 700, color: '#92400E', fontSize: 13, marginBottom: 6 }}>💼 Salary Group — No Market Parts</div>
+          <p style={{ margin: 0, fontSize: 12, color: '#78716C', lineHeight: 1.7 }}>
+            This technician is on a fixed monthly salary. No commission is earned for services or parts.<br />
+            No market-purchased parts were found in this booking, so there is nothing to reimburse.<br />
+            <b>Clicking Confirm will close this booking directly.</b>
+          </p>
+        </div>
+      )}
+
+      {/* ── MANUAL MODE: no services/parts found (non-salary group) ── */}
+      {preview && !previewLoading && !hasLineItems && !isSalaryGroup && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ background: '#FFF7ED', border: '1px solid #FCD34D', borderRadius: 8, padding: '12px 14px', marginBottom: 14, fontSize: 13, color: '#92400E' }}>
             ⚠ No services or parts found in this booking's invoiced quotations. Enter the commission manually below.
@@ -185,6 +205,14 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
         </div>
       )}
 
+      {/* ── SALARY GROUP — Market reimbursement banner ── */}
+      {preview && !previewLoading && isSalaryGroup && salaryHasMarketParts && (
+        <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#92400E' }}>
+          💼 <b>Salary Group:</b> This technician earns a fixed salary — no service or part commission is paid.
+          Only market-purchased parts shown below are reimbursed (the technician's out-of-pocket cost is returned).
+        </div>
+      )}
+
       {/* ── NORMAL MODE: commission breakdown table ── */}
       {preview && !previewLoading && hasLineItems && (
         <>
@@ -193,7 +221,7 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
             {/* Header */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '2fr 50px 90px 70px 130px 110px',
+              gridTemplateColumns: isSalaryGroup ? '2fr 50px 90px 70px 130px' : '2fr 50px 90px 70px 130px 110px',
               background: '#F8FAFC', padding: '8px 12px',
               borderBottom: '1px solid #E2E8F0',
               fontSize: 11, fontWeight: 700, color: '#64748B',
@@ -203,7 +231,7 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
               <span style={{ textAlign: 'right' }}>Sell Price</span>
               <span style={{ textAlign: 'right' }}>Rate</span>
               <span style={{ textAlign: 'right' }}>Payout Breakdown</span>
-              <span style={{ textAlign: 'right' }}>Override</span>
+              {!isSalaryGroup && <span style={{ textAlign: 'right' }}>Override</span>}
             </div>
 
             {(preview.line_items || []).map((item: any, idx: number) => {
@@ -218,7 +246,7 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
                   key={idx}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '2fr 50px 90px 70px 130px 110px',
+                    gridTemplateColumns: isSalaryGroup ? '2fr 50px 90px 70px 130px' : '2fr 50px 90px 70px 130px 110px',
                     padding: '8px 12px',
                     borderBottom: '1px solid #F1F5F9',
                     background: isUnmatched ? '#FFFBEB' : 'white',
@@ -316,62 +344,74 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
                     )}
                   </div>
 
-                  {/* Override input — only for commission part, not reimbursement */}
-                  <div style={{ textAlign: 'right' }}>
-                    <input
-                      type="number" min="0" step="0.01"
-                      placeholder={item.commission_amount != null ? String(item.commission_amount) : '0'}
-                      value={overrides[String(idx)] ?? ''}
-                      onChange={e => setOverrides(prev => ({ ...prev, [String(idx)]: e.target.value }))}
-                      style={{
-                        width: 88, padding: '4px 6px',
-                        border: `1px solid ${
-                          overrides[String(idx)] !== undefined && overrides[String(idx)] !== '' ? '#7C3AED'
-                          : isUnmatched ? '#FCD34D' : '#E2E8F0'
-                        }`,
-                        borderRadius: 5, fontSize: 12, textAlign: 'right',
-                        background: overrides[String(idx)] !== undefined && overrides[String(idx)] !== '' ? '#F5F3FF'
-                                    : isUnmatched ? '#FFFBEB' : '#fff',
-                      }}
-                    />
-                    {isMarket && (
-                      <div style={{ fontSize: 9, color: '#94A3B8', marginTop: 2 }}>profit only</div>
-                    )}
-                  </div>
+                  {/* Override input — only for commission-based groups */}
+                  {!isSalaryGroup && (
+                    <div style={{ textAlign: 'right' }}>
+                      <input
+                        type="number" min="0" step="0.01"
+                        placeholder={item.commission_amount != null ? String(item.commission_amount) : '0'}
+                        value={overrides[String(idx)] ?? ''}
+                        onChange={e => setOverrides(prev => ({ ...prev, [String(idx)]: e.target.value }))}
+                        style={{
+                          width: 88, padding: '4px 6px',
+                          border: `1px solid ${
+                            overrides[String(idx)] !== undefined && overrides[String(idx)] !== '' ? '#7C3AED'
+                            : isUnmatched ? '#FCD34D' : '#E2E8F0'
+                          }`,
+                          borderRadius: 5, fontSize: 12, textAlign: 'right',
+                          background: overrides[String(idx)] !== undefined && overrides[String(idx)] !== '' ? '#F5F3FF'
+                                      : isUnmatched ? '#FFFBEB' : '#fff',
+                        }}
+                      />
+                      {isMarket && (
+                        <div style={{ fontSize: 9, color: '#94A3B8', marginTop: 2 }}>profit only</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
 
             {/* Totals footer */}
             <div style={{
-              background: '#F0FDF4',
-              borderTop: '2px solid #86EFAC',
+              background: isSalaryGroup ? '#FFFBEB' : '#F0FDF4',
+              borderTop: `2px solid ${isSalaryGroup ? '#FCD34D' : '#86EFAC'}`,
               padding: '10px 12px',
             }}>
-              {/* Reimbursement sub-row — only shown if any market parts */}
-              {totalReimbursement > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12, color: '#92400E' }}>
-                  <span>🛒 Market Part Purchase Reimbursement</span>
-                  <span style={{ fontWeight: 700 }}>{money(totalReimbursement)}</span>
+              {isSalaryGroup ? (
+                // Salary group footer — only reimbursement
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#92400E', fontWeight: 800 }}>
+                  <span>🛒 Total Market Part Reimbursement (to wallet)</span>
+                  <span>{money(totalReimbursement)}</span>
                 </div>
-              )}
-              {/* Commission sub-row */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: totalReimbursement > 0 ? 4 : 0, fontSize: 12, color: '#059669' }}>
-                <span>💰 Profit Commission</span>
-                <span style={{ fontWeight: 700 }}>{money(totalCommission)}</span>
-              </div>
-              {/* Grand total */}
-              {totalReimbursement > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #86EFAC', paddingTop: 6, marginTop: 6, fontSize: 14, color: '#166534', fontWeight: 800 }}>
-                  <span>🎯 Total Payout to Technician</span>
-                  <span>{money(grandTotal)}</span>
-                </div>
-              )}
-              {totalReimbursement === 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #86EFAC', paddingTop: 6, marginTop: 6, fontSize: 14, color: '#166534', fontWeight: 800 }}>
-                  <span>Total Commission (held — released on Commissions page)</span>
-                  <span>{money(totalCommission)}</span>
-                </div>
+              ) : (
+                <>
+                  {/* Reimbursement sub-row — only shown if any market parts */}
+                  {totalReimbursement > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12, color: '#92400E' }}>
+                      <span>🛒 Market Part Purchase Reimbursement</span>
+                      <span style={{ fontWeight: 700 }}>{money(totalReimbursement)}</span>
+                    </div>
+                  )}
+                  {/* Commission sub-row */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: totalReimbursement > 0 ? 4 : 0, fontSize: 12, color: '#059669' }}>
+                    <span>💰 Profit Commission</span>
+                    <span style={{ fontWeight: 700 }}>{money(totalCommission)}</span>
+                  </div>
+                  {/* Grand total */}
+                  {totalReimbursement > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #86EFAC', paddingTop: 6, marginTop: 6, fontSize: 14, color: '#166534', fontWeight: 800 }}>
+                      <span>🎯 Total Payout to Technician</span>
+                      <span>{money(grandTotal)}</span>
+                    </div>
+                  )}
+                  {totalReimbursement === 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #86EFAC', paddingTop: 6, marginTop: 6, fontSize: 14, color: '#166534', fontWeight: 800 }}>
+                      <span>Total Commission (held — released on Commissions page)</span>
+                      <span>{money(totalCommission)}</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -402,11 +442,23 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
           </div>
 
           {/* How settlement works info box */}
-          <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#1E40AF' }}>
+          <div style={{ background: isSalaryGroup ? '#FFFBEB' : '#EFF6FF', border: `1px solid ${isSalaryGroup ? '#FCD34D' : '#BFDBFE'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: isSalaryGroup ? '#92400E' : '#1E40AF' }}>
             <b>ℹ️ How settlement works:</b>
             <ul style={{ margin: '6px 0 0 0', paddingLeft: 18, lineHeight: 1.8 }}>
               <li>Booking will be marked <b>CLOSED</b></li>
-              {hasLineItems ? (
+              {isSalaryGroup ? (
+                <>
+                  <li>💼 This technician is on a <b>fixed salary</b> — no service or part commission is saved</li>
+                  {salaryHasMarketParts ? (
+                    <>
+                      <li>🛒 Market part reimbursement of <b>{money(totalReimbursement)}</b> will be saved as <b>PENDING</b></li>
+                      <li>To release to the technician's wallet, go to <b>Commissions page → Pay</b></li>
+                    </>
+                  ) : (
+                    <li>No market parts found — booking will close with no commission records</li>
+                  )}
+                </>
+              ) : hasLineItems ? (
                 <>
                   {totalReimbursement > 0 && (
                     <li>
@@ -419,13 +471,16 @@ export default function SettleModal({ booking, onClose, onSettled }: SettleModal
                   {totalReimbursement > 0 && (
                     <li>🎯 Total payout held: <b>{money(grandTotal)}</b></li>
                   )}
+                  <li>To release to the technician's wallet, go to <b>Commissions page → Pay</b></li>
                 </>
               ) : (
-                <li>
-                  Manual commission of <b>{money(parseFloat(manualCommission) || 0)}</b> will be saved as <b>PENDING</b>
-                </li>
+                <>
+                  <li>
+                    Manual commission of <b>{money(parseFloat(manualCommission) || 0)}</b> will be saved as <b>PENDING</b>
+                  </li>
+                  <li>To release to the technician's wallet, go to <b>Commissions page → Pay</b></li>
+                </>
               )}
-              <li>To release to the technician's wallet, go to <b>Commissions page → Pay</b></li>
             </ul>
           </div>
 

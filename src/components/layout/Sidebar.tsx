@@ -34,7 +34,8 @@ const nav: NavItem[] = [
   { kind: 'link', to: '/cash-collections',     icon: '💵', label: 'Cash Collections' },
   { kind: 'link', to: '/wallet',               icon: '👛', label: 'Wallet' },
   { kind: 'link', to: '/withdrawals',          icon: '💸', label: 'Withdrawals' },
-  { kind: 'link', to: '/settlements',          icon: '🏦', label: 'Settlements' },
+  { kind: 'link', to: '/salary-settlement',    icon: '🏦', label: 'Salary Settlement' },
+  { kind: 'link', to: '/settlements',          icon: '💳', label: 'Settlements' },
   {
     kind: 'group', id: 'commissions', icon: '📊', label: 'Commissions',
     children: [

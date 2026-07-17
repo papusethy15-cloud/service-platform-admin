@@ -207,7 +207,7 @@ function TechnicianReportTab() {
   const [report,   setReport]   = useState<any>(null)
   const [loading,  setLoading]  = useState(false)
   const [techLoad, setTechLoad] = useState(true)
-  const [section,  setSection]  = useState<'bookings' | 'quotations' | 'payments' | 'commissions' | 'wallet' | 'withdrawals' | 'ratings'>('bookings')
+  const [section,  setSection]  = useState<'bookings' | 'quotations' | 'payments' | 'commissions' | 'wallet' | 'withdrawals' | 'ratings' | 'attendance'>('bookings')
   const [pdfLoading, setPdfLoading] = useState(false)
 
   // Load technicians for dropdown
@@ -347,7 +347,7 @@ function TechnicianReportTab() {
       )}
 
       {!loading && report && (() => {
-        const { technician: tech, period: pd, summary: s, bookings, quotations, ratings, commissions, commission_summary: cs, wallet, wallet_summary: ws, wallet_transactions: walletTxns, withdrawal_requests: withdrawals } = report
+        const { technician: tech, period: pd, summary: s, bookings, quotations, ratings, commissions, commission_summary: cs, wallet, wallet_summary: ws, wallet_transactions: walletTxns, withdrawal_requests: withdrawals, attendance, attendance_summary: atts } = report
 
         return (
           <>
@@ -452,6 +452,7 @@ function TechnicianReportTab() {
               {wallet && secBtn('wallet',      'Wallet Txns', ws?.txn_count || 0)}
               {wallet && secBtn('withdrawals', 'Withdrawals', ws?.withdrawal_count || 0)}
               {secBtn('ratings',     'Ratings',     s.total_ratings)}
+              {secBtn('attendance',  'Attendance',  atts?.total_days || 0)}
             </div>
 
             {/* ── BOOKINGS SECTION ── */}
@@ -692,6 +693,38 @@ function TechnicianReportTab() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                }
+              </div>
+            )}
+
+            {/* ── ATTENDANCE SECTION ── */}
+            {section === 'attendance' && (
+              <div className="card">
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #F1F5F9', fontWeight: 700, fontSize: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>🗓️ Attendance ({atts?.total_days || 0} records)</span>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+                    <span style={{ color: '#059669' }}>✅ Present: {atts?.present_days || 0}</span>
+                    <span style={{ color: '#EF4444' }}>❌ Absent: {atts?.absent_days || 0}</span>
+                    <span style={{ color: '#1D4ED8' }}>⏱️ Total Hours: {atts?.total_hours || 0}h</span>
+                  </div>
+                </div>
+                {(!attendance || attendance.length === 0)
+                  ? <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8' }}>No attendance records in this period</div>
+                  : <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
+                      {attendance.map((a: any, i: number) => {
+                        const bg = a.status === 'PRESENT' ? '#ECFDF5' : a.status === 'ABSENT' ? '#FEF2F2' : a.status === 'HALF_DAY' ? '#FFFBEB' : '#F8FAFC'
+                        const col = a.status === 'PRESENT' ? '#065F46' : a.status === 'ABSENT' ? '#991B1B' : a.status === 'HALF_DAY' ? '#92400E' : '#475569'
+                        return (
+                          <div key={i} style={{ background: bg, borderRadius: 8, padding: '10px 14px', border: `1px solid ${col}22` }}>
+                            <div style={{ fontWeight: 700, fontSize: 12, color: '#0F172A' }}>{a.date}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: col, marginTop: 2 }}>{a.status}</div>
+                            <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>⏱️ {a.hours_worked}h</div>
+                            {a.check_in && <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>In: {a.check_in?.slice(11,16)}</div>}
+                            {a.check_out && <div style={{ fontSize: 10, color: '#94A3B8' }}>Out: {a.check_out?.slice(11,16)}</div>}
+                          </div>
+                        )
+                      })}
                     </div>
                 }
               </div>
