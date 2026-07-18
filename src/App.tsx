@@ -39,6 +39,7 @@ import DispatchMonitor  from '@/pages/DispatchMonitor'
 import RazorpayTransactions from '@/pages/RazorpayTransactions'
 import GSTReport      from '@/pages/GSTReport'
 import SalarySettlement from '@/pages/SalarySettlement'
+import CcoSalary from '@/pages/CcoSalary'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -72,6 +73,7 @@ export default function App() {
                 <Route path="/wallet"       element={<Wallet />} />
                 <Route path="/withdrawals"   element={<Withdrawals />} />
                 <Route path="/salary-settlement" element={<PrivateRoute><SalarySettlement /></PrivateRoute>} />
+                <Route path="/cco-salary" element={<PrivateRoute><CcoSalary /></PrivateRoute>} />
           <Route path="/settlements"  element={<Settlements />} />
                 <Route path="/coupons"      element={<Coupons />} />
                 <Route path="/escalations"  element={<Escalations />} />

@@ -1165,6 +1165,48 @@ export default function Bookings() {
               </div>
             )}
 
+            {/* Implement 4 — Technician conflict detail for selected slot */}
+            {reschSlot && reschDate && reschSlotDetail && reschSlotDetail.bookings?.length > 0 && (
+              <div style={{ marginBottom: 14, border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden', fontSize: 12 }}>
+                <div style={{ background: '#F8FAFC', padding: '7px 12px', fontWeight: 700, color: '#374151', borderBottom: '1px solid #E2E8F0' }}>
+                  📋 Existing bookings in this slot ({reschSlotDetail.bookings.length})
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#F1F5F9' }}>
+                      <th style={{ padding: '5px 10px', textAlign: 'left', color: '#64748B', fontWeight: 600 }}>Booking</th>
+                      <th style={{ padding: '5px 10px', textAlign: 'left', color: '#64748B', fontWeight: 600 }}>Service</th>
+                      <th style={{ padding: '5px 10px', textAlign: 'left', color: '#64748B', fontWeight: 600 }}>Technician</th>
+                      <th style={{ padding: '5px 10px', textAlign: 'left', color: '#64748B', fontWeight: 600 }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reschSlotDetail.bookings.map((b: any, i: number) => (
+                      <tr key={b.booking_id} style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC', borderTop: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '5px 10px', color: '#1E293B', fontWeight: 600 }}>{b.booking_number}</td>
+                        <td style={{ padding: '5px 10px', color: '#475569' }}>{b.service_name || '—'}</td>
+                        <td style={{ padding: '5px 10px', color: b.technician_name ? '#059669' : '#DC2626' }}>
+                          {b.technician_name
+                            ? <>👷 {b.technician_name} {b.technician_phone ? <span style={{ color: '#94A3B8' }}>({b.technician_phone})</span> : null}</>
+                            : <span style={{ fontStyle: 'italic' }}>⚠️ Unassigned</span>}
+                        </td>
+                        <td style={{ padding: '5px 10px' }}>
+                          <span style={{ fontSize: 10, background: '#EFF6FF', color: '#1B4FD8', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                            {b.status?.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {reschSlotDetail.bookings.some((b: any) => !b.technician_name) && (
+                  <div style={{ padding: '6px 12px', background: '#FFF7ED', color: '#92400E', fontSize: 11, borderTop: '1px solid #FED7AA' }}>
+                    ⚠️ Some bookings in this slot have no assigned technician — a single technician may end up covering multiple jobs.
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* No-change warning */}
             {!hasChange && reschDate && reschSlot && (
               <div style={{ fontSize: 12, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '8px 12px', marginBottom: 14 }}>

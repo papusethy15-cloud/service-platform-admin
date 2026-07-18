@@ -1,6 +1,6 @@
 import { todayIST, fmtDateIST, fmtDateTimeIST, fmtTimeIST } from "../lib/tz";
 import { useEffect, useState, useCallback } from 'react'
-import { attendanceAPI, leavesAPI, techniciansAPI } from '@/services/api'
+import { attendanceAPI, leavesAPI, techniciansAPI, api } from '@/services/api'
 import PageHeader from '@/components/layout/PageHeader'
 import StatusBadge from '@/components/ui/StatusBadge'
 import Pagination from '@/components/ui/Pagination'
@@ -88,7 +88,7 @@ function StatCard({ icon, label, value, sub, color }: {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Attendance() {
-  const [tab, setTab] = useState<'attendance' | 'leaves'>('attendance')
+  const [tab, setTab] = useState<'attendance' | 'leaves' | 'cco'>('attendance')
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [leaves, setLeaves]   = useState<LeaveRecord[]>([])
   const [techMap, setTechMap] = useState<Record<string, string>>({})
@@ -137,6 +137,7 @@ export default function Attendance() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
+      if (tab === 'cco') { setLoading(false); return; }
       if (tab === 'attendance') {
         const params: any = { page, per_page: 20 }
         if (filterTech)   params.technician_id = filterTech
@@ -227,7 +228,7 @@ export default function Attendance() {
 
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', gap: 4, background: '#F1F5F9', padding: 4, borderRadius: 10, width: 'fit-content', marginBottom: 20 }}>
-        {(['attendance', 'leaves'] as const).map(t => (
+        {(['attendance', 'leaves', 'cco'] as const).map(t => (
           <button
             key={t}
             onClick={() => { setTab(t); setPage(1) }}
@@ -239,7 +240,7 @@ export default function Attendance() {
               boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
             }}
           >
-            {t === 'attendance' ? '🗓️  Attendance Log' : '📋  Leave Requests'}
+            {t === 'attendance' ? '🗓️  Attendance Log' : t === 'leaves' ? '📋  Leave Requests' : '🏢  CCO Attendance'}
           </button>
         ))}
       </div>
@@ -756,12 +757,146 @@ export default function Attendance() {
         </Modal>
       )}
 
+      {/* ── CCO Attendance Tab ── */}
+      {tab === 'cco' && <CcoAttendanceTab />}
+
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
         }
       `}</style>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  CCO Attendance Tab — standalone component
+// ══════════════════════════════════════════════════════════════════
+interface CcoAttRec {
+  id: string; user_id: string; user_name: string | null;
+  date: string; check_in: string | null; check_out: string | null;
+  is_active: boolean; hours_worked: number; status: string;
+}
+
+function CcoAttendanceTab() {
+  const [records, setRecords] = useState<CcoAttRec[]>([])
+  const [loading, setLoading] = useState(true)
+  const [page, setPage]   = useState(1)
+  const [pages, setPages] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [filterUser, setFilterUser] = useState('')
+  const [filterFrom, setFilterFrom] = useState('')
+  const [filterTo,   setFilterTo]   = useState('')
+  const [ccoUsers, setCcoUsers]     = useState<{id:string;name:string}[]>([])
+
+  // Load CCO user list for filter dropdown
+  useEffect(() => {
+    api.get('/cco-attendance/admin/cco-list?per_page=100')
+      .then((r: any) => setCcoUsers(r.data?.data?.items || []))
+      .catch(() => {})
+  }, [])
+
+  const load = useCallback(() => {
+    setLoading(true)
+    const params: any = { page, per_page: 30 }
+    if (filterUser) params.user_id = filterUser
+    if (filterFrom) params.date_from = filterFrom
+    if (filterTo)   params.date_to   = filterTo
+    const qs = new URLSearchParams(params).toString()
+    api.get(`/cco-attendance/admin/list?${qs}`)
+      .then((r: any) => {
+        const d = r.data?.data || {}
+        setRecords(d.items || [])
+        setTotal(d.total || 0)
+        setPages(Math.ceil((d.total || 1) / 30) || 1)
+      })
+      .catch(() => setRecords([]))
+      .finally(() => setLoading(false))
+  }, [page, filterUser, filterFrom, filterTo])
+
+  useEffect(() => { load() }, [load])
+
+  const fmtT = (d: string | null) =>
+    d ? new Date(d).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
+  const fmtD = (d: string) =>
+    new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  const fmtDur = (h: number) => {
+    if (!h) return '—'
+    const hh = Math.floor(h); const mm = Math.round((h - hh) * 60)
+    return mm > 0 ? `${hh}h ${mm}m` : `${hh}h`
+  }
+
+  return (
+    <div>
+      {/* Filters */}
+      <div className="card" style={{ padding: '14px 18px', marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ flex: '1 1 180px' }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 4 }}>CCO</label>
+            <select className="input" value={filterUser} onChange={e => { setFilterUser(e.target.value); setPage(1) }} style={{ fontSize: 13 }}>
+              <option value="">All CCOs</option>
+              {ccoUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: '1 1 140px' }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 4 }}>FROM DATE</label>
+            <input className="input" type="date" value={filterFrom} onChange={e => { setFilterFrom(e.target.value); setPage(1) }} style={{ fontSize: 13 }} />
+          </div>
+          <div style={{ flex: '1 1 140px' }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 4 }}>TO DATE</label>
+            <input className="input" type="date" value={filterTo} onChange={e => { setFilterTo(e.target.value); setPage(1) }} style={{ fontSize: 13 }} />
+          </div>
+          <button className="btn btn-secondary" onClick={() => { setFilterUser(''); setFilterFrom(''); setFilterTo(''); setPage(1) }} style={{ fontSize: 13, height: 38 }}>Reset</button>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="card" style={{ overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 60 }}><Spinner /></div>
+        ) : records.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 60, color: '#94A3B8' }}>No CCO attendance records found.</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                {['CCO Name','Date','Check In','Check Out','Hours','Status'].map(h => (
+                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748B', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((r, i) => (
+                <tr key={r.id} style={{ borderBottom: '1px solid #F1F5F9', background: i % 2 === 0 ? 'white' : '#FAFAFA' }}>
+                  <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0F172A' }}>{r.user_name || '—'}</td>
+                  <td style={{ padding: '10px 14px', color: '#374151' }}>{fmtD(r.date)}</td>
+                  <td style={{ padding: '10px 14px', color: '#374151' }}>{fmtT(r.check_in)}</td>
+                  <td style={{ padding: '10px 14px', color: '#374151' }}>
+                    {r.is_active ? <span style={{ color: '#059669', fontWeight: 600 }}>Active 🟢</span> : fmtT(r.check_out)}
+                  </td>
+                  <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1B4FD8' }}>{fmtDur(r.hours_worked)}</td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{
+                      background: r.status === 'PRESENT' ? '#DCFCE7' : '#FEF2F2',
+                      color: r.status === 'PRESENT' ? '#166534' : '#DC2626',
+                      borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700,
+                    }}>{r.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Pagination */}
+      {pages > 1 && (
+        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
+          <Pagination page={page} pages={pages} onPage={setPage} />
+        </div>
+      )}
+      <div style={{ marginTop: 8, fontSize: 12, color: '#94A3B8', textAlign: 'right' }}>{total} record{total !== 1 ? 's' : ''}</div>
     </div>
   )
 }

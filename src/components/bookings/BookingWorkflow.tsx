@@ -288,6 +288,11 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
     if (p.invoice_id) paidByInvoiceId[p.invoice_id] = (paidByInvoiceId[p.invoice_id] || 0) + (p.amount || 0)
   })
 
+  // Implement 5: detect if ALL success payments were collected by technician on-site
+  const successPayments = payments.filter((p: any) => p.status === 'SUCCESS')
+  const allPaidByTechnician = successPayments.length > 0
+    && successPayments.every((p: any) => p.collected_by_role === 'TECHNICIAN')
+
   // PAY_LATER scheduled amounts per invoice (PENDING, not yet collected)
   const payLaterByInvoiceId: Record<string, { amount: number; due: string | null }> = {}
   payments.filter((p: any) => (p.method === 'PAY_LATER' || p.reference_number === 'PAY_LATER') && p.status === 'PENDING').forEach((p: any) => {
@@ -784,11 +789,21 @@ export default function BookingWorkflow({ booking: initBooking, onClose, onRefre
                   </div>
                 )}
 
-                {/* Mark Paid — only when ALL invoices are fully paid */}
-                {hasInvoice && totalOutstanding <= 0 && !['PAID','CLOSED', 'SETTLED'].includes(status) && (
+                {/* Mark Paid — only when ALL invoices are fully paid AND not already auto-collected by technician on-site */}
+                {hasInvoice && totalOutstanding <= 0 && !['PAID','CLOSED', 'SETTLED'].includes(status) && !allPaidByTechnician && (
                   <ActionBtn icon="✅" label="Mark as Fully Paid" color="#059669" bg="#F0FDF4" border="#86EFAC"
                     hint={`All ${invoices.length} invoice(s) collected (${money(totalPaid)}) — confirm PAID status`}
                     onClick={() => transition('markPaid', 'Marked as fully paid')} loading={acting} />
+                )}
+                {/* Implement 5: technician collected full payment on-site — show info banner instead of button */}
+                {hasInvoice && totalOutstanding <= 0 && !['PAID','CLOSED', 'SETTLED'].includes(status) && allPaidByTechnician && (
+                  <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#059669', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 16 }}>✅</span>
+                    <span>
+                      <strong>Payment collected by technician on-site</strong> — {money(totalPaid)} received.{' '}
+                      Admin confirmation not required. Use <em>Settle &amp; Close</em> to finalize.
+                    </span>
+                  </div>
                 )}
                 {/* Collect Payment — one button per invoice that has outstanding balance */}
                 {invoices.filter((inv: any) => balanceByInvoiceId[inv.id] > 0).map((inv: any) => (
