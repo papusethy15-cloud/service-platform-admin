@@ -155,7 +155,7 @@ function LinkServiceModal({
   })
 
   const linkedSet   = new Set(alreadyLinked)
-  const available   = filtered.filter(s => !linkedSet.has(s.id))
+  const available   = filtered.filter(s => !linkedSet.has(s.id) && s.is_visible !== false)
   const alreadyInDomain = filtered.filter(s =>  linkedSet.has(s.id))
 
   const toggleSelect = (id: string) => {
@@ -412,6 +412,318 @@ function LinkServiceModal({
   )
 }
 
+/* ──────────────────────────── Bulk Override Modal ──────────────────────────── */
+interface BulkOverrideEntry {
+  domain_service_id:     string
+  service_id:            string
+  service_name:          string
+  category_name:         string | null
+  has_existing_override: boolean
+  meta_title:            string | null
+  meta_description:      string | null
+  meta_keywords:         string | null
+  og_title:              string | null
+  og_description:        string | null
+  og_image_url:          string | null
+  includes:              string[]
+  excludes:              string[]
+  faqs:                  FaqItem[]
+}
+
+function BulkOverrideModal({
+  domainId,
+  services,
+  onClose,
+}: {
+  domainId: string
+  services: LinkedService[]
+  onClose: () => void
+}) {
+  const [step, setStep]               = useState<'select' | 'download' | 'upload'>('select')
+  const [catFilter, setCatFilter]     = useState('')
+  const [selected, setSelected]       = useState<Set<string>>(new Set())
+  const [downloading, setDownloading] = useState(false)
+  const [uploading, setUploading]     = useState(false)
+  const [uploadResult, setUploadResult] = useState<{ updated: number; skipped: number; errors: string[] } | null>(null)
+  const [err, setErr]                 = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  // Unique categories from linked services
+  const categories = Array.from(
+    new Map(services.map(s => [s.category_id, s.category_name])).entries()
+  ).map(([id, name]) => ({ id, name }))
+
+  const filtered = services.filter(s => !catFilter || s.category_id === catFilter)
+
+  const toggleSvc = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const selectAll = () => setSelected(new Set(filtered.map(s => s.domain_service_id)))
+  const clearAll  = () => setSelected(new Set())
+
+  // ── Download JSON template ──────────────────────────────────
+  const doDownload = async () => {
+    if (selected.size === 0) return
+    setDownloading(true); setErr('')
+    try {
+      const r = await api.post(`/domains/${domainId}/services/overrides/download`, {
+        service_ids: Array.from(selected),
+      })
+      const data: BulkOverrideEntry[] = r.data.data
+
+      // Pretty-print JSON and trigger browser download
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `domain-service-overrides-${new Date().toISOString().slice(0,10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      setStep('download')
+    } catch (e: any) {
+      setErr(e.response?.data?.detail || 'Failed to generate JSON')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  // ── Upload & apply JSON ─────────────────────────────────────
+  const doUpload = async (file: File) => {
+    setUploading(true); setErr(''); setUploadResult(null)
+    try {
+      const text = await file.text()
+      const data: BulkOverrideEntry[] = JSON.parse(text)
+
+      // Validate basic shape
+      if (!Array.isArray(data)) throw new Error('JSON must be an array')
+
+      const payload = {
+        overrides: data.map(entry => ({
+          domain_service_id: entry.domain_service_id,
+          meta_title:        entry.meta_title        || null,
+          meta_description:  entry.meta_description  || null,
+          meta_keywords:     entry.meta_keywords      || null,
+          og_title:          entry.og_title           || null,
+          og_description:    entry.og_description     || null,
+          og_image_url:      entry.og_image_url       || null,
+          includes:          Array.isArray(entry.includes) ? entry.includes : [],
+          excludes:          Array.isArray(entry.excludes) ? entry.excludes : [],
+          faqs:              Array.isArray(entry.faqs)     ? entry.faqs     : [],
+        }))
+      }
+
+      const r = await api.post(`/domains/${domainId}/services/overrides/upload`, payload)
+      setUploadResult(r.data.data)
+      setStep('upload')
+    } catch (e: any) {
+      setErr(e.response?.data?.detail || e.message || 'Failed to upload JSON')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const selCount    = selected.size
+  const withOverride = filtered.filter(s => s.is_visible).length // proxy; actual count from backend
+
+  return (
+    <Modal title="Bulk Override — SEO & Content" onClose={onClose} wide>
+
+      {/* ── Step indicator ── */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderRadius: 10,
+        overflow: 'hidden', border: '1px solid #E2E8F0' }}>
+        {(['select', 'download', 'upload'] as const).map((s, i) => {
+          const labels = ['1. Select Services', '2. Edit & Download JSON', '3. Upload JSON']
+          const active = step === s
+          const done   = (step === 'download' && i === 0) || (step === 'upload' && i <= 1)
+          return (
+            <div key={s} style={{ flex: 1, padding: '10px 0', textAlign: 'center',
+              fontSize: 12, fontWeight: 600,
+              background: active ? '#1B4FD8' : done ? '#DCFCE7' : '#F8FAFC',
+              color: active ? 'white' : done ? '#166534' : '#94A3B8',
+              borderRight: i < 2 ? '1px solid #E2E8F0' : 'none' }}>
+              {done && !active ? '✓ ' : ''}{labels[i]}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ── Step 1: Select ── */}
+      {step === 'select' && (
+        <>
+          <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE',
+            borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: '#1D4ED8' }}>
+            ℹ️ Select services to export. The JSON file will include current override data (if any) for each selected service.
+            Edit SEO &amp; Content fields in the JSON locally, then upload to bulk-update.
+            <br /><b>Images are NOT affected</b> — upload images individually via the Override button per service.
+          </div>
+
+          {/* Category filter */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+            <select className="input" style={{ width: 220 }}
+              value={catFilter} onChange={e => setCatFilter(e.target.value)}>
+              <option value="">All categories</option>
+              {categories.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <div style={{ flex: 1 }} />
+            <button className="btn btn-secondary btn-sm" onClick={selectAll}>Select All ({filtered.length})</button>
+            <button className="btn btn-secondary btn-sm" onClick={clearAll} disabled={selected.size === 0}>Clear</button>
+          </div>
+
+          {/* Service list */}
+          <div style={{ height: 320, overflowY: 'auto', border: '1px solid #E2E8F0',
+            borderRadius: 10, background: '#FAFBFC', marginBottom: 14 }}>
+            {filtered.length === 0
+              ? <div style={{ padding: 32, textAlign: 'center', color: '#94A3B8', fontSize: 14 }}>
+                  No services match the filter.
+                </div>
+              : filtered.map(s => {
+                  const isSel = selected.has(s.domain_service_id)
+                  return (
+                    <div key={s.domain_service_id} onClick={() => toggleSvc(s.domain_service_id)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #F1F5F9',
+                        background: isSel ? '#EFF6FF' : 'white', transition: 'background 0.1s' }}>
+                      <div style={{ width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                        border: `2px solid ${isSel ? '#1B4FD8' : '#CBD5E1'}`,
+                        background: isSel ? '#1B4FD8' : 'white',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {isSel && <span style={{ color: 'white', fontSize: 12, fontWeight: 700 }}>✓</span>}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: '#0F172A',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.name}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                          <span style={{ fontSize: 11, background: '#EFF6FF', color: '#1B4FD8',
+                            padding: '1px 7px', borderRadius: 20 }}>{s.category_name}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+            }
+          </div>
+
+          {err && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px',
+            borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{err}</div>}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13, color: '#64748B' }}>
+              <b style={{ color: '#1B4FD8' }}>{selCount}</b> service{selCount !== 1 ? 's' : ''} selected
+            </span>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-primary" onClick={doDownload}
+                disabled={selCount === 0 || downloading}>
+                {downloading ? 'Generating…' : `⬇ Download JSON (${selCount})`}
+              </button>
+              <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Step 2: Downloaded ── */}
+      {step === 'download' && (
+        <>
+          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0',
+            borderRadius: 10, padding: 16, marginBottom: 20, textAlign: 'center' }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: '#166534', marginBottom: 6 }}>
+              JSON downloaded!
+            </div>
+            <div style={{ fontSize: 13, color: '#374151' }}>
+              Open the file in any text editor or VS Code.<br />
+              Edit the <b>SEO fields</b> (meta_title, meta_description, etc.) and <b>Content fields</b> (includes, excludes, faqs).<br />
+              <b>Do not change</b> <code>domain_service_id</code> — it's the identifier used during upload.
+            </div>
+          </div>
+
+          <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A',
+            borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: '#92400E' }}>
+            📋 <b>JSON structure per service:</b>
+            <pre style={{ margin: '8px 0 0', fontFamily: 'monospace', fontSize: 12,
+              background: '#FFFBEB', padding: 10, borderRadius: 6, overflowX: 'auto' }}>
+{`{
+  "domain_service_id": "...",  // ← DO NOT CHANGE
+  "service_name": "...",        // ← read-only reference
+  "meta_title": "Service Name | Brand",
+  "meta_description": "Short description for Google...",
+  "meta_keywords": "keyword1, keyword2",
+  "og_title": "...",
+  "og_description": "...",
+  "includes": ["What service covers...", "..."],
+  "excludes": ["What is NOT included...", "..."],
+  "faqs": [{ "q": "Question?", "a": "Answer." }]
+}`}
+            </pre>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
+            <button className="btn btn-secondary" onClick={() => setStep('select')}>← Back to Select</button>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <input ref={fileRef} type="file" accept=".json" style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) doUpload(f) }} />
+              <button className="btn btn-primary" onClick={() => fileRef.current?.click()}
+                disabled={uploading}>
+                {uploading ? 'Uploading…' : '⬆ Upload Edited JSON'}
+              </button>
+              <button className="btn btn-secondary" onClick={onClose}>Done</button>
+            </div>
+          </div>
+          {err && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '8px 12px',
+            borderRadius: 8, fontSize: 13, marginTop: 12 }}>{err}</div>}
+        </>
+      )}
+
+      {/* ── Step 3: Uploaded ── */}
+      {step === 'upload' && uploadResult && (
+        <>
+          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0',
+            borderRadius: 10, padding: 20, textAlign: 'center', marginBottom: 16 }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>🎉</div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: '#166534', marginBottom: 4 }}>
+              Bulk update complete!
+            </div>
+            <div style={{ fontSize: 14, color: '#374151' }}>
+              <b style={{ color: '#166534' }}>{uploadResult.updated}</b> service override{uploadResult.updated !== 1 ? 's' : ''} updated
+              {uploadResult.skipped > 0 && (
+                <>, <b style={{ color: '#D97706' }}>{uploadResult.skipped}</b> skipped</>
+              )}
+            </div>
+          </div>
+
+          {uploadResult.errors.length > 0 && (
+            <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A',
+              borderRadius: 8, padding: 12, marginBottom: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: '#92400E', marginBottom: 6 }}>
+                ⚠️ Some entries were skipped:
+              </div>
+              {uploadResult.errors.map((e, i) => (
+                <div key={i} style={{ fontSize: 12, color: '#92400E', padding: '2px 0' }}>• {e}</div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button className="btn btn-secondary" onClick={() => {
+              setStep('select'); setSelected(new Set()); setUploadResult(null)
+            }}>Do Another Batch</button>
+            <button className="btn btn-primary" onClick={onClose}>✓ Close</button>
+          </div>
+        </>
+      )}
+    </Modal>
+  )
+}
+
 /* ──────────────────────────────────── main component ── */
 export default function Domains() {
   const [domains, setDomains]     = useState<Domain[]>([])
@@ -440,6 +752,7 @@ export default function Domains() {
   const [overrideService, setOverrideService] = useState<LinkedService | null>(null)
   const [overrideData, setOverrideData]       = useState<DomainServiceOverride>({} as DomainServiceOverride)
   const [overrideSaving, setOverrideSaving]   = useState(false)
+  const [showBulkOverride, setShowBulkOverride] = useState(false)
 
   const [form, setForm] = useState({
     name: '', slug: '', description: '', logo_url: '',
@@ -756,9 +1069,15 @@ export default function Domains() {
                     <span style={{ fontSize:13, color:'#64748B' }}>
                       {services.length} service{services.length !== 1 ? 's' : ''} linked to this domain
                     </span>
-                    <button className="btn btn-primary btn-sm" onClick={() => setShowAddService(true)}>
-                      + Link Services
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setShowBulkOverride(true)}
+                        disabled={services.length === 0} title="Bulk update SEO & Content for multiple services">
+                        📋 Bulk Override
+                      </button>
+                      <button className="btn btn-primary btn-sm" onClick={() => setShowAddService(true)}>
+                        + Link Services
+                      </button>
+                    </div>
                   </div>
                   {services.length === 0
                     ? (
@@ -1045,6 +1364,18 @@ export default function Domains() {
           saving={saving}
           onSave={doSaveProfile}
           onClose={() => setShowProfileEdit(false)}
+        />
+      )}
+
+      {/* ── BULK OVERRIDE MODAL ── */}
+      {showBulkOverride && selected && (
+        <BulkOverrideModal
+          domainId={selected.id}
+          services={services}
+          onClose={() => {
+            setShowBulkOverride(false)
+            fetchDetail(selected, 'services')
+          }}
         />
       )}
     </div>
