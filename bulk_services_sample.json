@@ -1,0 +1,234 @@
+{
+  "_instructions": {
+    "description": "Bulk import file for Palei Solutions Admin — Services & Categories",
+    "how_to_use": [
+      "1. Fill in your categories under the 'categories' array.",
+      "2. Fill in your services under the 'services' array.",
+      "3. For each service, use EITHER 'category_id' (UUID from DB) OR 'category_name' (exact name as in the file or DB).",
+      "4. Duplicates are automatically SKIPPED (matched by name, case-insensitive).",
+      "5. Go to Admin Dashboard → Services → Bulk Import → upload this file.",
+      "6. Remove this '_instructions' key before uploading, or leave it — it will be ignored."
+    ],
+    "fields": {
+      "categories": {
+        "name": "REQUIRED — Category display name",
+        "description": "Optional — short description shown to admins",
+        "icon": "Optional — single emoji icon e.g. ❄️ 🔧 🧹 📺",
+        "sort_order": "Optional — integer, lower = shown first (default 0)"
+      },
+      "services": {
+        "name": "REQUIRED — Service display name",
+        "category_name": "Use this OR category_id — must match a category name exactly",
+        "category_id": "Use this OR category_name — UUID of the category from database",
+        "description": "Optional — short description of the service",
+        "base_price": "REQUIRED — Base price in INR (number)",
+        "gst_percent": "Optional — GST percentage, default 18",
+        "duration_mins": "Optional — Estimated job duration in minutes, default 60",
+        "is_visible": "Optional — true/false, whether visible to customers (default true)",
+        "sort_order": "Optional — integer, lower = shown first (default 0)"
+      }
+    }
+  },
+
+  "categories": [
+    {
+      "name": "AC Services",
+      "description": "Air conditioner installation, repair and maintenance",
+      "icon": "❄️",
+      "sort_order": 1
+    },
+    {
+      "name": "Washing Machine",
+      "description": "Washing machine repair and servicing",
+      "icon": "🫧",
+      "sort_order": 2
+    },
+    {
+      "name": "Refrigerator",
+      "description": "Refrigerator repair and gas refilling",
+      "icon": "🧊",
+      "sort_order": 3
+    },
+    {
+      "name": "Microwave",
+      "description": "Microwave oven repair",
+      "icon": "📡",
+      "sort_order": 4
+    },
+    {
+      "name": "Television",
+      "description": "LED, LCD and Smart TV repair",
+      "icon": "📺",
+      "sort_order": 5
+    },
+    {
+      "name": "Geyser / Water Heater",
+      "description": "Geyser and water heater installation and repair",
+      "icon": "🚿",
+      "sort_order": 6
+    }
+  ],
+
+  "services": [
+    {
+      "name": "AC Gas Refilling (1 Ton)",
+      "category_name": "AC Services",
+      "description": "Refrigerant gas recharge for 1 ton AC unit",
+      "base_price": 1200,
+      "gst_percent": 18,
+      "duration_mins": 60,
+      "is_visible": true,
+      "sort_order": 1
+    },
+    {
+      "name": "AC Gas Refilling (1.5 Ton)",
+      "category_name": "AC Services",
+      "description": "Refrigerant gas recharge for 1.5 ton AC unit",
+      "base_price": 1500,
+      "gst_percent": 18,
+      "duration_mins": 75,
+      "is_visible": true,
+      "sort_order": 2
+    },
+    {
+      "name": "AC Service & Cleaning",
+      "category_name": "AC Services",
+      "description": "Complete AC servicing with deep cleaning of filters and coils",
+      "base_price": 699,
+      "gst_percent": 18,
+      "duration_mins": 90,
+      "is_visible": true,
+      "sort_order": 3
+    },
+    {
+      "name": "AC Installation (Split AC)",
+      "category_name": "AC Services",
+      "description": "New split AC unit installation with copper pipe fitting",
+      "base_price": 1800,
+      "gst_percent": 18,
+      "duration_mins": 180,
+      "is_visible": true,
+      "sort_order": 4
+    },
+    {
+      "name": "AC PCB Repair",
+      "category_name": "AC Services",
+      "description": "Printed circuit board diagnosis and repair",
+      "base_price": 2500,
+      "gst_percent": 18,
+      "duration_mins": 120,
+      "is_visible": true,
+      "sort_order": 5
+    },
+    {
+      "name": "Washing Machine Repair (Top Load)",
+      "category_name": "Washing Machine",
+      "description": "General repair for top-load washing machines",
+      "base_price": 500,
+      "gst_percent": 18,
+      "duration_mins": 60,
+      "is_visible": true,
+      "sort_order": 1
+    },
+    {
+      "name": "Washing Machine Repair (Front Load)",
+      "category_name": "Washing Machine",
+      "description": "General repair for front-load washing machines",
+      "base_price": 699,
+      "gst_percent": 18,
+      "duration_mins": 90,
+      "is_visible": true,
+      "sort_order": 2
+    },
+    {
+      "name": "Washing Machine Drum Cleaning",
+      "category_name": "Washing Machine",
+      "description": "Deep drum cleaning and odour removal service",
+      "base_price": 399,
+      "gst_percent": 18,
+      "duration_mins": 60,
+      "is_visible": true,
+      "sort_order": 3
+    },
+    {
+      "name": "Refrigerator Cooling Not Working",
+      "category_name": "Refrigerator",
+      "description": "Diagnosis and repair when fridge is not cooling",
+      "base_price": 600,
+      "gst_percent": 18,
+      "duration_mins": 90,
+      "is_visible": true,
+      "sort_order": 1
+    },
+    {
+      "name": "Refrigerator Gas Refilling",
+      "category_name": "Refrigerator",
+      "description": "Refrigerant gas recharge for fridge",
+      "base_price": 1400,
+      "gst_percent": 18,
+      "duration_mins": 120,
+      "is_visible": true,
+      "sort_order": 2
+    },
+    {
+      "name": "Microwave Oven Not Heating",
+      "category_name": "Microwave",
+      "description": "Diagnosis and repair for microwave not heating",
+      "base_price": 500,
+      "gst_percent": 18,
+      "duration_mins": 60,
+      "is_visible": true,
+      "sort_order": 1
+    },
+    {
+      "name": "Microwave Turntable Repair",
+      "category_name": "Microwave",
+      "description": "Turntable motor or plate replacement",
+      "base_price": 350,
+      "gst_percent": 18,
+      "duration_mins": 45,
+      "is_visible": true,
+      "sort_order": 2
+    },
+    {
+      "name": "TV Screen Repair (LED)",
+      "category_name": "Television",
+      "description": "LED panel diagnosis and repair",
+      "base_price": 1500,
+      "gst_percent": 18,
+      "duration_mins": 120,
+      "is_visible": true,
+      "sort_order": 1
+    },
+    {
+      "name": "TV No Display / Backlight Fix",
+      "category_name": "Television",
+      "description": "Backlight strip or inverter repair",
+      "base_price": 800,
+      "gst_percent": 18,
+      "duration_mins": 90,
+      "is_visible": true,
+      "sort_order": 2
+    },
+    {
+      "name": "Geyser Installation",
+      "category_name": "Geyser / Water Heater",
+      "description": "New geyser installation with pipe and fitting",
+      "base_price": 699,
+      "gst_percent": 18,
+      "duration_mins": 60,
+      "is_visible": true,
+      "sort_order": 1
+    },
+    {
+      "name": "Geyser Not Heating Repair",
+      "category_name": "Geyser / Water Heater",
+      "description": "Heating element or thermostat replacement",
+      "base_price": 499,
+      "gst_percent": 18,
+      "duration_mins": 60,
+      "is_visible": true,
+      "sort_order": 2
+    }
+  ]
+}
