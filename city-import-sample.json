@@ -1,0 +1,53 @@
+[
+  {
+    "name": "Bhubaneswar",
+    "state": "Odisha",
+    "country": "India",
+    "base_travel_charge": 50,
+    "zones": [
+      {
+        "name": "North Zone",
+        "description": "Northern areas of Bhubaneswar",
+        "areas": [
+          { "name": "Saheed Nagar", "pincode": "751007", "surge_multiplier": 1.0 },
+          { "name": "Satya Nagar", "pincode": "751007", "surge_multiplier": 1.0 },
+          { "name": "Nayapalli", "pincode": "751012", "surge_multiplier": 1.0 }
+        ]
+      },
+      {
+        "name": "South Zone",
+        "description": "Southern areas of Bhubaneswar",
+        "areas": [
+          { "name": "Patia", "pincode": "751024", "surge_multiplier": 1.1 },
+          { "name": "Chandrasekharpur", "pincode": "751023", "surge_multiplier": 1.0 },
+          { "name": "Infocity", "pincode": "751024", "surge_multiplier": 1.2 }
+        ]
+      },
+      {
+        "name": "Central Zone",
+        "description": "Central Bhubaneswar areas",
+        "areas": [
+          { "name": "Old Town", "pincode": "751002", "surge_multiplier": 1.0 },
+          { "name": "Bapuji Nagar", "pincode": "751009", "surge_multiplier": 1.0 },
+          { "name": "Janpath", "pincode": "751001", "surge_multiplier": 1.0 }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Cuttack",
+    "state": "Odisha",
+    "country": "India",
+    "base_travel_charge": 40,
+    "zones": [
+      {
+        "name": "Cuttack Central",
+        "description": "Main city areas",
+        "areas": [
+          { "name": "Buxi Bazar", "pincode": "753001", "surge_multiplier": 1.0 },
+          { "name": "Dolamundai", "pincode": "753001", "surge_multiplier": 1.0 }
+        ]
+      }
+    ]
+  }
+]

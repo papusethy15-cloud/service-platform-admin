@@ -407,6 +407,7 @@ export const citiesAPI = {
   updatePricing: (id: string, d: any)                      => api.put(`/cities/${id}/pricing`, d),
   settings:      (id: string)                              => api.get(`/cities/${id}/settings`),
   updateSettings:(id: string, d: any)                      => api.put(`/cities/${id}/settings`, d),
+  bulkImport:    (d: any)                                    => api.post('/cities/bulk-import', d),
 }
 
 // ── Domains ────────────────────────────────────────────────────
